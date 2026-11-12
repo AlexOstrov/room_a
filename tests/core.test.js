@@ -58,6 +58,7 @@ test("defaults: стартовое состояние соответствует
   var s = Core.defaults();
   assert.strictEqual(s.mode, "B");
   assert.strictEqual(s.peg, 1);
+  assert.strictEqual(s.panno, 0);
   assert.strictEqual(s.light, 2);
   assert.strictEqual(s.corner, false);
   assert.strictEqual(s.ai, false);
@@ -67,20 +68,22 @@ test("defaults: стартовое состояние соответствует
 
 test("sanitize: значения зажимаются в допустимые диапазоны", function () {
   var s = Core.sanitize({
-    decor: 99, mode: "X", peg: 9, light: -4, corner: 1, ai: 1,
+    decor: 99, mode: "X", peg: 9, panno: 99, light: -4, corner: 1, ai: 1,
     led: { picture: 1, wall: 1, peg: 1 }
   });
   assert.strictEqual(s.decor, 3);
   assert.strictEqual(s.mode, "B");
-  assert.strictEqual(s.peg, 3);
+  assert.strictEqual(s.peg, 1, "панно вытесняет «Максимум» из центра стены");
+  assert.strictEqual(s.panno, 3);
   assert.strictEqual(s.light, 0);
   assert.strictEqual(s.corner, true);
   assert.strictEqual(s.ai, true);
   assert.deepStrictEqual(s.led, { picture: false, wall: true, peg: true });
 
-  var weird = Core.sanitize({ decor: NaN, peg: undefined, light: null, led: null });
+  var weird = Core.sanitize({ decor: NaN, peg: undefined, panno: null, light: null, led: null });
   assert.strictEqual(weird.decor, 0);
   assert.strictEqual(weird.peg, 1);
+  assert.strictEqual(weird.panno, 0);
   assert.strictEqual(weird.light, 0);
   assert.deepStrictEqual(weird.led, { picture: false, wall: false, peg: false });
 });
@@ -110,6 +113,67 @@ test("sanitize: «Максимум» скрывает картину и гаси
   var back = Core.sanitize({ mode: "B", peg: 1, led: { picture: true, wall: false, peg: false } });
   assert.strictEqual(back.led.picture, true);
   assert.strictEqual(Core.pictureVisible(back), true);
+});
+
+test("panno: панно скрывает картину, гасит её LED и убирает вырез панелей", function () {
+  var s = Core.sanitize({ mode: "B", peg: 1, panno: 2, led: { picture: true, wall: true, peg: true } });
+  assert.strictEqual(s.panno, 2);
+  assert.strictEqual(s.led.picture, false);
+  assert.strictEqual(s.led.wall, true);
+  assert.strictEqual(Core.pictureVisible(s), false);
+  assert.strictEqual(Core.summary(s).pannoVisible, true);
+  assert.strictEqual(Core.summary(s).pannoName, "Горы");
+  assert.strictEqual(Core.summary(s).ledPictureAvailable, false);
+
+  var panels = Core.panelRects(s);
+  assert.strictEqual(panels.length, 1, "МДФ закрывает стену без выреза под картину");
+
+  var lr = Core.ledRects(s);
+  assert(lr.peg);
+  assert.strictEqual(lr.picture, undefined, "у скрытой картины нет LED-рамки");
+
+  var off = Core.sanitize({ mode: "B", peg: 1, panno: 0, led: { picture: true } });
+  assert.strictEqual(off.led.picture, true);
+  assert.strictEqual(Core.pictureVisible(off), true);
+  assert.strictEqual(Core.panelRects(off).length, 4);
+});
+
+test("panno: «4 квадрата» — общий габарит 38,5 × 38,5 см", function () {
+  var q = Core.PANNO.squares;
+  assert(close(q.tile, 0.18), "плитка должна быть 18 см");
+  assert(close(q.gap, 0.025), "центральный зазор должен быть 2,5 см");
+  assert(close(2 * q.tile + q.gap, 0.385), "габарит всего панно должен быть 38,5 см");
+
+  var r = Core.pannoRect({ panno: 1 });
+  assert(close(r.x1 - r.x0, 0.385));
+  assert(close(r.y1 - r.y0, 0.385));
+  assert(close(Core.PANNO.variants[0].w, 2 * q.tile + q.gap));
+  assert(close(Core.PANNO.variants[0].h, 2 * q.tile + q.gap));
+});
+
+test("panno: все варианты центрированы по стене и помещаются в неё", function () {
+  for (var p = 1; p <= Core.PANNO.variants.length; p++) {
+    var r = Core.pannoRect({ panno: p });
+    assert(r, "нет прямоугольника для варианта " + p);
+    assert(close((r.x0 + r.x1) / 2, 0), "панно не центрировано по X");
+    assert(close((r.y0 + r.y1) / 2, Core.PANNO.cy), "панно не центрировано по Y");
+    assert(close(r.x1 - r.x0, Core.PANNO.variants[p - 1].w));
+    assert(close(r.y1 - r.y0, Core.PANNO.variants[p - 1].h));
+    assert(inside(r, { x0: -Core.WALL.W / 2, x1: Core.WALL.W / 2, y0: 0, y1: Core.WALL.H }));
+    assert(overlap(r, Core.pictureRect()), "панно должно занимать место картины");
+  }
+  assert.strictEqual(Core.pannoRect({ panno: 0 }), null);
+  assert.strictEqual(Core.pannoRect({ panno: 9 }), null);
+});
+
+test("panno: «Максимум» и панно не сосуществуют", function () {
+  var s = Core.sanitize({ mode: "B", peg: 3, panno: 3, led: { picture: true } });
+  assert.strictEqual(s.panno, 3, "панно сохраняется");
+  assert.strictEqual(s.peg, 1, "пегборд откатывается к обычному варианту");
+  assert.strictEqual(s.led.picture, false);
+  assert.strictEqual(Core.pictureVisible(s), false);
+  assert.strictEqual(Core.summary(s).pegVisible, true);
+  assert.strictEqual(Core.summary(s).pannoVisible, true);
 });
 
 test("geometry: картина и панели режима A/B", function () {
@@ -239,6 +303,7 @@ test("AI-пресет: контрастный декор, максимум пе�
   assert.strictEqual(s.decor, 3);
   assert.strictEqual(s.mode, "B");
   assert.strictEqual(s.peg, 3);
+  assert.strictEqual(s.panno, 0);
   assert.strictEqual(s.light, 2);
   assert.strictEqual(s.corner, true);
   assert.deepStrictEqual(s.led, { picture: false, wall: false, peg: true });
@@ -248,6 +313,8 @@ test("summary: подсказки соответствуют доступнос�
   var b = Core.summary(Core.sanitize({ mode: "B", peg: 1 }));
   assert.strictEqual(b.pictureVisible, true);
   assert.strictEqual(b.pegVisible, true);
+  assert.strictEqual(b.pannoVisible, false);
+  assert.strictEqual(b.pannoName, "Нет");
   assert.strictEqual(b.ledPictureAvailable, true);
   assert.strictEqual(b.ledPegAvailable, true);
 

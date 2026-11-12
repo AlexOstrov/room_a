@@ -25,7 +25,7 @@
     var wantedMode = document.querySelector('input[name="mode"][value="' + state.mode + '"]');
     if (wantedMode) wantedMode.checked = true;
 
-    ['light', 'peg'].forEach(function (name) {
+    ['light', 'peg', 'panno'].forEach(function (name) {
       var input = document.querySelector('input[name="' + name + '"][value="' + state[name] + '"]');
       if (input) input.checked = true;
     });
@@ -46,8 +46,9 @@
     el.ledPeg.disabled = !s.ledPegAvailable;
     document.getElementById('ledPicHint').textContent = s.ledPictureAvailable
       ? 'по краю панелей вокруг полотна'
-      : (state.peg === 3 ? 'недоступно для «Максимум»: картина скрыта'
-                         : 'недоступно в режиме «Вся стена»');
+      : (state.panno > 0 ? 'недоступно: включено световое панно'
+        : (state.peg === 3 ? 'недоступно для «Максимум»: картина скрыта'
+                           : 'недоступно в режиме «Вся стена»'));
     document.getElementById('ledPegHint').textContent = s.ledPegAvailable
       ? 'контур рабочей зоны над столом'
       : 'сначала включите пегборд';
@@ -64,6 +65,10 @@
       mode: mode ? mode.value : state.mode,
       light: light ? Number(light.value) : state.light,
       peg: peg ? Number(peg.value) : state.peg,
+      panno: (function () {
+        var r = checkedRadio('panno');
+        return r ? Number(r.value) : state.panno;
+      })(),
       corner: el.corner.checked,
       ai: el.ai.checked,
       led: {
@@ -74,7 +79,7 @@
     };
   }
 
-  function onUserChange() {
+  function onUserChange(e) {
     if (!ready || uiSyncing) return;
     /* Любое ручное изменение выключает AI-пресет, но не откатывает
        только что выбранный пользователем параметр. */
@@ -83,7 +88,14 @@
       preAI = null;
       el.ai.checked = false;
     }
-    state = Core.sanitize(readUI());
+    var next = readUI();
+    /* «Максимум» и световое панно делят центральную зону стены:
+       последнее действие пользователя выигрывает. */
+    if (next.panno > 0 && next.peg === 3) {
+      if (e && e.target && e.target.name === 'panno') next.peg = 1;
+      else next.panno = 0;
+    }
+    state = Core.sanitize(next);
     applyState();
   }
 
@@ -91,7 +103,7 @@
     [el.decor, el.corner, el.ledPic, el.ledWall, el.ledPeg].forEach(function (node) {
       node.addEventListener('change', onUserChange);
     });
-    document.querySelectorAll('input[name="mode"], input[name="light"], input[name="peg"]')
+    document.querySelectorAll('input[name="mode"], input[name="light"], input[name="peg"], input[name="panno"]')
       .forEach(function (node) { node.addEventListener('change', onUserChange); });
 
     el.ai.addEventListener('change', function () {
@@ -142,6 +154,7 @@
 
     rebuildPanels();
     updatePegboard();
+    updatePanno();
     applyLighting();
     updateLeds();
     syncUI();
@@ -197,14 +210,16 @@
     if (typeof ASSETS === 'undefined') {
       throw new Error('ASSETS не встроены в файл');
     }
-    if (!ASSETS.picture || !ASSETS.pegboard || !ASSETS.decor || ASSETS.decor.length !== 4) {
+    if (!ASSETS.picture || !ASSETS.pegboard || !ASSETS.pannoMap ||
+        !ASSETS.decor || ASSETS.decor.length !== 4) {
       throw new Error('В ASSETS отсутствуют обязательные текстуры');
     }
-    var src = [ASSETS.picture, ASSETS.pegboard].concat(ASSETS.decor);
+    var src = [ASSETS.picture, ASSETS.pegboard, ASSETS.pannoMap].concat(ASSETS.decor);
     return Promise.all(src.map(loadImage)).then(function (imgs) {
       M.pictureImage = imgs[0];
       M.pegImage = imgs[1];
-      M.decorImages = imgs.slice(2);
+      M.pannoMapImage = imgs[2];
+      M.decorImages = imgs.slice(3);
     });
   }
 
@@ -219,6 +234,9 @@
           pegboard: pegGroup.visible,
           pegMax: pegMaxDecor.visible,
           pegRect: Core.pegRect(state),
+          panno: pannoGroup.visible,
+          pannoVariant: state.panno,
+          pannoRect: Core.pannoRect(state),
           corner: cornerGroup.visible,
           panels: panelGroup.children.length,
           led: {
@@ -265,6 +283,7 @@
       buildCurtain();
       buildDesk();
       buildPicture();
+      buildPanno();
       buildPegboard();
       buildPanels();
       buildLeds();

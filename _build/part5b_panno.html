@@ -1,0 +1,357 @@
+  /* =====================================================================
+     Световое панно из дерева (3 варианта по центру стены).
+     Геометрия и текстуры процедурные: файл остаётся автономным.
+     ===================================================================== */
+  /*__PANNO_RINGS__*/
+  var pannoGroup, pannoVariants = [], pannoLight;
+  var pannoGlowMat, pannoWoodSideMat, pannoBackMat;
+
+  function shadeHex(hex, k) {
+    var r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
+    r = Math.max(0, Math.min(255, Math.round(r * k)));
+    g = Math.max(0, Math.min(255, Math.round(g * k)));
+    b = Math.max(0, Math.min(255, Math.round(b * k)));
+    return (r << 16) | (g << 8) | b;
+  }
+
+  function makePannoWoodTexture(seed, base, planks) {
+    var W = 512, H = 512, c = cv(W, H), g = c.getContext('2d');
+    var r = rnd(seed);
+    var pw = W / planks;
+    for (var i = 0; i < planks; i++) {
+      var tone = 0.88 + r() * 0.24;
+      g.fillStyle = '#' + shadeHex(base, tone).toString(16).padStart(6, '0');
+      g.fillRect(i * pw, 0, pw, H);
+      /* мягкий градиент по ширине доски */
+      var gr = g.createLinearGradient(i * pw, 0, (i + 1) * pw, 0);
+      gr.addColorStop(0, 'rgba(0,0,0,0.12)');
+      gr.addColorStop(0.18, 'rgba(255,255,255,0.05)');
+      gr.addColorStop(0.72, 'rgba(255,255,255,0.02)');
+      gr.addColorStop(1, 'rgba(0,0,0,0.16)');
+      g.fillStyle = gr;
+      g.fillRect(i * pw, 0, pw, H);
+      /* шов между досками */
+      g.fillStyle = 'rgba(38,22,12,0.55)';
+      g.fillRect(i * pw, 0, 1.6, H);
+      g.fillStyle = 'rgba(255,235,205,0.10)';
+      g.fillRect(i * pw + 1.6, 0, 1.1, H);
+      /* волокна */
+      for (var k = 0; k < 38; k++) {
+        var x = i * pw + 3 + r() * (pw - 6);
+        g.strokeStyle = 'rgba(' + (r() < 0.5 ? '40,24,12' : '255,225,190') + ',' + (0.03 + r() * 0.06) + ')';
+        g.lineWidth = 0.7 + r() * 1.4;
+        g.beginPath();
+        var y = r() * H;
+        g.moveTo(x, y);
+        g.bezierCurveTo(x + (r() - 0.5) * 8, y + H * 0.3, x + (r() - 0.5) * 8, y + H * 0.65, x + (r() - 0.5) * 4, y + H * 0.9);
+        g.stroke();
+      }
+      /* сучок */
+      if (r() < 0.55) {
+        var kx = i * pw + pw * (0.25 + r() * 0.5);
+        var ky = H * (0.15 + r() * 0.7);
+        g.strokeStyle = 'rgba(45,25,12,0.25)';
+        for (var q = 1; q <= 3; q++) {
+          g.lineWidth = 1;
+          g.beginPath();
+          g.ellipse(kx, ky, 3 + q * 3.2, 2 + q * 2.1, 0, 0, Math.PI * 2);
+          g.stroke();
+        }
+      }
+    }
+    grain(g, W, H, 5, seed);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.anisotropy = maxAniso;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    return t;
+  }
+
+  function makePannoStoneTexture(seed) {
+    var W = 512, H = 512, c = cv(W, H), g = c.getContext('2d');
+    var r = rnd(seed);
+    g.fillStyle = '#8a7e70';
+    g.fillRect(0, 0, W, H);
+    for (var i = 0; i < 2600; i++) {
+      var v = 70 + Math.round(r() * 120);
+      g.fillStyle = 'rgba(' + v + ',' + Math.round(v * 0.92) + ',' + Math.round(v * 0.82) + ',' + (0.04 + r() * 0.12) + ')';
+      g.fillRect(r() * W, r() * H, 1 + r() * 5, 1 + r() * 3);
+    }
+    for (var s = 0; s < 30; s++) {
+      g.strokeStyle = 'rgba(35,24,16,' + (0.05 + r() * 0.12) + ')';
+      g.lineWidth = 0.7 + r() * 2.2;
+      g.beginPath();
+      var x = r() * W, y = r() * H;
+      g.moveTo(x, y);
+      for (var k = 0; k < 6; k++) {
+        x += (r() - 0.5) * 90;
+        y += 20 + r() * 45;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    grain(g, W, H, 7, seed + 5);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1.25, 1.25);
+    t.anisotropy = maxAniso;
+    return t;
+  }
+
+  function makePannoGlowTexture() {
+    var S = 512, c = cv(S, S), g = c.getContext('2d');
+    g.clearRect(0, 0, S, S);
+    var rg = g.createRadialGradient(S / 2, S / 2, S * 0.04, S / 2, S / 2, S * 0.5);
+    rg.addColorStop(0, 'rgba(255,225,175,0.96)');
+    rg.addColorStop(0.22, 'rgba(255,190,115,0.70)');
+    rg.addColorStop(0.52, 'rgba(255,150,70,0.26)');
+    rg.addColorStop(1, 'rgba(255,120,40,0)');
+    g.fillStyle = rg;
+    g.fillRect(0, 0, S, S);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    return t;
+  }
+
+  function addPannoGlow(parent, w, h, z, opacity) {
+    var pl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), pannoGlowMat);
+    pl.position.set(0, 0, z);
+    pl.material = pannoGlowMat.clone();
+    pl.material.opacity = opacity;
+    pl.renderOrder = 1;
+    parent.add(pl);
+    return pl;
+  }
+
+  function buildPanno() {
+    pannoGroup = new THREE.Group();
+    pannoGroup.position.set(0, Core.PANNO.cy, 0);
+    pannoGroup.visible = false;
+    scene.add(pannoGroup);
+
+    pannoGlowMat = new THREE.MeshBasicMaterial({
+      map: makePannoGlowTexture(), transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8
+    });
+    pannoWoodSideMat = new THREE.MeshStandardMaterial({ color: 0x4a2e1b, roughness: 0.62, metalness: 0.02 });
+    pannoBackMat = new THREE.MeshStandardMaterial({ color: 0x22160e, roughness: 0.78, metalness: 0.02 });
+
+    pannoVariants[1] = buildPannoSquares();
+    pannoVariants[2] = buildPannoMountains();
+    pannoVariants[3] = buildPannoMap();
+    pannoVariants.forEach(function (v) {
+      if (!v) return;
+      v.visible = false;
+      pannoGroup.add(v);
+    });
+
+    pannoLight = new THREE.PointLight(0xffbf7a, 0.55, 3.0, 2);
+    pannoLight.position.set(0, 0.0, 0.88);
+    pannoLight.visible = false;
+    pannoGroup.add(pannoLight);
+  }
+
+  /* ---------- вариант 1: четыре дубовые панели 2×2 ---------- */
+  function buildPannoSquares() {
+    var g = new THREE.Group();
+    var q = Core.PANNO.squares;
+    var s = q.tile, gap = q.gap, d = (s + gap) / 2;
+    var bases = [0xb98a58, 0xa97545, 0xc49a68, 0x9f6c3f];
+    var pos = [[-d, d], [d, d], [-d, -d], [d, -d]];
+    for (var i = 0; i < 4; i++) {
+      var tex = makePannoWoodTexture(31 + i, bases[i], 5);
+      var front = new THREE.MeshStandardMaterial({
+        map: tex, bumpMap: tex, bumpScale: 0.0035,
+        roughness: 0.50, metalness: 0.025, envMapIntensity: 0.42
+      });
+      var mats = [pannoWoodSideMat, pannoWoodSideMat, pannoWoodSideMat,
+                  pannoWoodSideMat, front, pannoWoodSideMat];
+      var tile = new THREE.Mesh(new THREE.BoxGeometry(s, s, 0.014), mats);
+      tile.position.set(pos[i][0], pos[i][1], 0.031);
+      tile.castShadow = true; tile.receiveShadow = true;
+      g.add(tile);
+
+      var back = new THREE.Mesh(new THREE.BoxGeometry(s + 0.008, s + 0.008, 0.006), pannoBackMat);
+      back.position.set(pos[i][0], pos[i][1], 0.0205);
+      back.castShadow = true; back.receiveShadow = true;
+      g.add(back);
+    }
+    addPannoGlow(g, 0.56, 0.56, 0.017, 0.66);
+    addPannoGlow(g, 0.46, 0.46, 0.018, 0.50);
+    return g;
+  }
+
+  /* ---------- вариант 2: горный рельеф с солнцем и LED-волной ---------- */
+  var MTN_BACK = [
+    [-0.73, -0.05], [-0.69, 0.01], [-0.65, -0.02], [-0.60, 0.08], [-0.55, 0.03],
+    [-0.49, 0.13], [-0.44, 0.07], [-0.38, 0.16], [-0.33, 0.10], [-0.27, 0.19],
+    [-0.22, 0.13], [-0.17, 0.21], [-0.12, 0.16], [-0.06, 0.24], [-0.02, 0.17],
+    [0.03, 0.21], [0.08, 0.14], [0.13, 0.17], [0.18, 0.10], [0.24, 0.14],
+    [0.30, 0.07], [0.36, 0.11], [0.42, 0.05], [0.48, 0.09], [0.54, 0.02],
+    [0.60, 0.06], [0.66, -0.01], [0.73, -0.06]
+  ];
+  var MTN_MID = [
+    [-0.73, -0.02], [-0.69, 0.03], [-0.65, 0.00], [-0.60, 0.07], [-0.55, 0.03],
+    [-0.50, 0.11], [-0.45, 0.06], [-0.40, 0.13], [-0.35, 0.08], [-0.30, 0.14],
+    [-0.25, 0.09], [-0.20, 0.15], [-0.15, 0.10], [-0.10, 0.16], [-0.05, 0.10],
+    [0.01, 0.14], [0.07, 0.08], [0.13, 0.12], [0.19, 0.06], [0.25, 0.10],
+    [0.31, 0.04], [0.37, 0.08], [0.43, 0.02], [0.49, 0.06], [0.55, 0.00],
+    [0.61, 0.04], [0.67, -0.02], [0.73, -0.06]
+  ];
+  var MTN_FRONT = [
+    [-0.73, -0.12], [-0.63, -0.07], [-0.53, -0.10], [-0.43, -0.06],
+    [-0.33, -0.09], [-0.23, -0.05], [-0.13, -0.08], [-0.03, -0.04],
+    [0.07, -0.07], [0.17, -0.03], [0.27, -0.06], [0.37, -0.02],
+    [0.47, -0.05], [0.57, -0.01], [0.67, -0.04], [0.73, -0.09]
+  ];
+  /* нижняя кромка повторяет волну LED-ленты */
+  var MTN_FRONT_BOTTOM = [
+    [-0.73, -0.19], [-0.60, -0.14], [-0.47, -0.21], [-0.34, -0.14],
+    [-0.21, -0.21], [-0.08, -0.14], [0.05, -0.21], [0.18, -0.14],
+    [0.31, -0.21], [0.44, -0.14], [0.57, -0.21], [0.70, -0.15],
+    [0.73, -0.16]
+  ];
+
+  function ridgeShape(top, bottom) {
+    var s = new THREE.Shape();
+    s.moveTo(top[0][0], top[0][1]);
+    for (var i = 1; i < top.length; i++) s.lineTo(top[i][0], top[i][1]);
+    if (bottom && bottom.length) {
+      for (var j = bottom.length - 1; j >= 0; j--) s.lineTo(bottom[j][0], bottom[j][1]);
+    } else {
+      s.lineTo(top[top.length - 1][0], bottom);
+      s.lineTo(top[0][0], bottom);
+    }
+    s.closePath();
+    return s;
+  }
+
+  function buildPannoMountains() {
+    var g = new THREE.Group();
+    var bump = makePannoStoneTexture(61);
+    var layers = [
+      { top: MTN_BACK,  bottom: -0.20, z: 0.028, color: 0x2c1b0c, rough: 0.78 },
+      { top: MTN_MID,   bottom: -0.22, z: 0.042, color: 0x462d16, rough: 0.72 },
+      { top: MTN_FRONT, bottom: MTN_FRONT_BOTTOM, z: 0.056, color: 0x6a4827, rough: 0.66 }
+    ];
+    layers.forEach(function (L) {
+      var mat = new THREE.MeshStandardMaterial({
+        color: L.color, map: bump, bumpMap: bump, bumpScale: 0.0062,
+        roughness: L.rough, metalness: 0.03, envMapIntensity: 0.16
+      });
+      var geo = new THREE.ExtrudeGeometry(ridgeShape(L.top, L.bottom), {
+        depth: 0.013, bevelEnabled: true, bevelSegments: 1,
+        bevelSize: 0.003, bevelThickness: 0.003, steps: 1, curveSegments: 1
+      });
+      var m = new THREE.Mesh(geo, mat);
+      m.position.z = L.z;
+      m.castShadow = true; m.receiveShadow = true;
+      g.add(m);
+    });
+
+    /* солнце поднимается из-за хребта */
+    var sunGlow = addPannoGlow(g, 0.40, 0.40, 0.044, 0.62);
+    sunGlow.position.set(0.17, 0.135, 0.044);
+    var sun = new THREE.Mesh(
+      new THREE.CircleGeometry(0.086, 40),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd9a6, emissive: 0xffbc72, emissiveIntensity: 1.05,
+        roughness: 0.40, metalness: 0.0
+      })
+    );
+    sun.position.set(0.17, 0.135, 0.046);
+    g.add(sun);
+
+    /* золотые «облака» у правого склона */
+    var cloudMat = new THREE.MeshStandardMaterial({
+      color: 0xc9a364, roughness: 0.34, metalness: 0.55, envMapIntensity: 0.65
+    });
+    [[0.31, 0.075, 0.125, 0.016], [0.37, 0.045, 0.095, 0.012]]
+      .forEach(function (c) {
+        var cl = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), cloudMat);
+        cl.scale.set(c[2] / 0.1, c[3] / 0.1, 0.45);
+        cl.position.set(c[0], c[1], 0.070);
+        cl.castShadow = true;
+        g.add(cl);
+      });
+
+    /* волнистая LED-лента по нижнему краю */
+    var lp = MTN_FRONT_BOTTOM.map(function (p) {
+      return new THREE.Vector3(p[0], p[1] + 0.006, 0.076);
+    });
+    var curve = new THREE.CatmullRomCurve3(lp);
+    var ledMat = new THREE.MeshStandardMaterial({
+      color: 0xfff7e4, emissive: 0xffe6b8, emissiveIntensity: 2.6,
+      roughness: 0.3, metalness: 0.0
+    });
+    var led = new THREE.Mesh(new THREE.TubeGeometry(curve, 72, 0.0075, 6, false), ledMat);
+    g.add(led);
+    var haloMat = new THREE.MeshBasicMaterial({
+      color: 0xffd9a0, transparent: true, opacity: 0.20,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    var halo = new THREE.Mesh(new THREE.TubeGeometry(curve, 72, 0.024, 6, false), haloMat);
+    g.add(halo);
+
+    addPannoGlow(g, 1.70, 0.68, 0.018, 0.55);
+    addPannoGlow(g, 1.42, 0.54, 0.020, 0.42);
+    return g;
+  }
+
+  /* ---------- вариант 3: карта России из разных пород дерева ---------- */
+  function buildPannoMap() {
+    var g = new THREE.Group();
+    var r = Core.pannoRect({ panno: 3 });
+    var tex = texFromImage(M.pannoMapImage, true);
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.repeat.set(1, 1);
+    tex.offset.set(0, 0);
+    tex.anisotropy = maxAniso;
+
+    var topMat = new THREE.MeshStandardMaterial({
+      map: tex, bumpMap: tex, bumpScale: 0.0018,
+      roughness: 0.47, metalness: 0.02, envMapIntensity: 0.38
+    });
+    var sideMat = new THREE.MeshStandardMaterial({
+      color: 0x4c2f1c, roughness: 0.60, metalness: 0.03
+    });
+    var shapes = PANNO_MAP_RINGS.map(function (ring) {
+      var sh = new THREE.Shape();
+      ring.forEach(function (p, i) {
+        if (i === 0) sh.moveTo(p[0], p[1]); else sh.lineTo(p[0], p[1]);
+      });
+      sh.closePath();
+      return sh;
+    });
+    var geo = new THREE.ExtrudeGeometry(shapes, {
+      depth: 0.015, bevelEnabled: true, bevelSegments: 1,
+      bevelSize: 0.003, bevelThickness: 0.003, steps: 1, curveSegments: 1
+    });
+    var pos = geo.attributes.position, uv = geo.attributes.uv;
+    for (var i = 0; i < pos.count; i++) {
+      uv.setXY(i, (pos.getX(i) + r.w / 2) / r.w, (pos.getY(i) + r.h / 2) / r.h);
+    }
+    uv.needsUpdate = true;
+    var mesh = new THREE.Mesh(geo, [topMat, sideMat]);
+    mesh.position.z = 0.042;
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    g.add(mesh);
+
+    addPannoGlow(g, 1.76, 0.94, 0.018, 0.58);
+    addPannoGlow(g, 1.48, 0.78, 0.020, 0.42);
+    return g;
+  }
+
+  function updatePanno() {
+    if (!pannoGroup) return;
+    var p = state.panno | 0;
+    var on = p > 0 && p < pannoVariants.length && !!pannoVariants[p];
+    pannoGroup.visible = on;
+    pannoLight.visible = on;
+    for (var i = 1; i < pannoVariants.length; i++) {
+      if (pannoVariants[i]) pannoVariants[i].visible = on && i === p;
+    }
+  }

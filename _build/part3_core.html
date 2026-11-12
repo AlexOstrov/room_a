@@ -11,6 +11,20 @@ var Core = (function () {
   /* ---------- габариты сцены ---------- */
   var WALL  = { W: 4.4, H: 2.75, DEPTH: 0.016, EDGE: 0.03, PANEL_Y0: 0.06, PANEL_Y1: 2.605 };
   var PICT  = { w: 2.30, h: 1.25, cx: 0, cy: 1.55, frame: 0.018 };
+  /* Световое панно из дерева: ставится по центру стены вместо картины.
+     0 — нет, 1 — четыре квадрата, 2 — горный рельеф, 3 — карта России. */
+  var PANNO = {
+    cy: PICT.cy,
+    names: ['Нет', '4 квадрата', 'Горы', 'Карта России'],
+    /* «4 квадрата»: общий габарит 38,5 × 38,5 см, как у товара.
+       Четыре плитки 18 см и центральный зазор 2,5 см. */
+    squares: { tile: 0.18, gap: 0.025 },
+    variants: [
+      { w: 0.385, h: 0.385 },
+      { w: 1.46, h: 0.52 },
+      { w: 1.52, h: 0.7242 }
+    ]
+  };
   /* пропорции исходного фото пегборда 640 × 445; максимальная доска — 4×3 */
   var PEG   = { w: 0.92, h: 0.92 * 445 / 640, gap: 0.02, gapAboveMonitor: 0.11,
                 top: 2.61, margin: 0.04, edgePad: 0.028, clear: 0.018,
@@ -49,6 +63,7 @@ var Core = (function () {
       decor: 1,
       mode: 'B',
       peg: 1,
+      panno: 0,
       light: 2,
       corner: false,
       ai: false,
@@ -64,6 +79,7 @@ var Core = (function () {
       decor: clampInt(s.decor !== undefined ? s.decor : d.decor, 0, DECORS.length - 1),
       mode: (s.mode === 'A' ? 'A' : 'B'),
       peg: clampInt(s.peg !== undefined ? s.peg : d.peg, 0, 3),
+      panno: clampInt(s.panno !== undefined ? s.panno : d.panno, 0, PANNO.names.length - 1),
       light: clampInt(s.light !== undefined ? s.light : d.light, 0, 3),
       corner: !!s.corner,
       ai: !!s.ai,
@@ -75,6 +91,8 @@ var Core = (function () {
     };
     /* «Максимум» занимает всю ширину рабочей зоны, поэтому картина
        убирается со стены — LED её контура тоже больше не нужен. */
+    /* Максимальный пегборд и световое панно делят центральную зону стены. */
+    if (out.panno > 0 && out.peg === 3) out.peg = 1;
     if (!pictureVisible(out)) out.led.picture = false;
     /* LED пегборда существует только когда пегборд есть */
     if (out.peg === 0) out.led.peg = false;
@@ -84,7 +102,19 @@ var Core = (function () {
   /* Картина видна только в режиме «Вокруг картины» и только пока
      не выбран максимальный пегборд 4×3. */
   function pictureVisible(state) {
-    return state.mode === 'B' && (state.peg | 0) !== 3;
+    return state.mode === 'B' && (state.peg | 0) !== 3 && (state.panno | 0) === 0;
+  }
+
+  /* Прямоугольник светового панно: всегда по центру стены. */
+  function pannoRect(state) {
+    var p = state.panno | 0;
+    if (p < 1 || p > PANNO.variants.length) return null;
+    var v = PANNO.variants[p - 1];
+    return {
+      x0: -v.w / 2, x1: v.w / 2,
+      y0: PANNO.cy - v.h / 2, y1: PANNO.cy + v.h / 2,
+      w: v.w, h: v.h
+    };
   }
 
   /* ---------- геометрия ---------- */
@@ -208,6 +238,7 @@ var Core = (function () {
     decor: 3,            /* тёмный орех — контраст к светлой мебели */
     mode: 'B',           /* картина скрыта самим «Максимумом», панели — на всю стену */
     peg: 3,              /* максимальный пегборд над рабочей зоной */
+    panno: 0,            /* световое панно не включено */
     light: 2,            /* нейтральный белый — фокус на учёбе */
     corner: true,
     ai: true,
@@ -227,6 +258,8 @@ var Core = (function () {
       tileHmm: Math.round(t.tileH * 1000),
       pictureVisible: pictureVisible(state),
       pegVisible: state.peg > 0,
+      pannoVisible: (state.panno | 0) > 0,
+      pannoName: PANNO.names[state.panno | 0] || PANNO.names[0],
       ledPictureAvailable: pictureVisible(state),
       ledPegAvailable: state.peg > 0
     };
@@ -234,9 +267,9 @@ var Core = (function () {
 
   return {
     WALL: WALL, PICT: PICT, PEG: PEG, MON: MON, DESK: DESK, SLAT: SLAT, VSTRETCH: VSTRETCH,
-    DECORS: DECORS, LIGHTS: LIGHTS, AI_PRESET: AI_PRESET,
+    DECORS: DECORS, LIGHTS: LIGHTS, AI_PRESET: AI_PRESET, PANNO: PANNO,
     clone: clone, defaults: defaults, sanitize: sanitize, presetState: presetState,
-    pictureVisible: pictureVisible,
+    pictureVisible: pictureVisible, pannoRect: pannoRect,
     pictureRect: pictureRect, pegRect: pegRect, panelRects: panelRects,
     cornerRect: cornerRect, ledRects: ledRects, decorTile: decorTile, uvAt: uvAt,
     summary: summary
