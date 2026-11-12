@@ -1,0 +1,392 @@
+<script>
+/* =====================================================================
+   ASSETS — встроенные текстуры (base64 JPEG). Подставляются сборщиком.
+   ===================================================================== */
+/*__ASSETS__*/
+</script>
+
+<script>
+/* =====================================================================
+   ПРИЛОЖЕНИЕ: рендерер, сцена, материалы, реактивность, UI
+   ===================================================================== */
+(function () {
+  'use strict';
+
+  var WALL = Core.WALL, PICT = Core.PICT, PEG = Core.PEG, MON = Core.MON, DESK = Core.DESK;
+  var DECORS = Core.DECORS, LIGHTS = Core.LIGHTS;
+
+  /* ---------- состояние ---------- */
+  var state = Core.defaults();
+  var preAI = null;                       /* снимок до включения AI-пресета */
+  var ready = false;
+
+  /* ---------- DOM ---------- */
+  var el = {
+    canvas: document.getElementById('view'),
+    overlay: document.getElementById('overlay'),
+    otitle: document.getElementById('otitle'),
+    otext: document.getElementById('otext'),
+    spin: document.getElementById('spin'),
+    panel: document.getElementById('panel'),
+    decor: document.getElementById('decor'),
+    decorinfo: document.getElementById('decorinfo'),
+    swatch: document.getElementById('swatch'),
+    ai: document.getElementById('ai'),
+    masterRow: document.getElementById('masterRow'),
+    ledPic: document.getElementById('ledPic'),
+    ledWall: document.getElementById('ledWall'),
+    ledPeg: document.getElementById('ledPeg'),
+    ledPicRow: document.getElementById('ledPicRow'),
+    ledPegRow: document.getElementById('ledPegRow'),
+    corner: document.getElementById('corner'),
+    reset: document.getElementById('reset'),
+    collapse: document.getElementById('collapse')
+  };
+
+  /* ---------- рендерер / сцена / камера ---------- */
+  var renderer, scene, camera, controls, pmrem;
+  var maxAniso = 4;
+  var dirty = true;
+
+  function fail(title, text) {
+    el.spin.style.display = 'none';
+    el.otitle.textContent = title;
+    el.otitle.className = 'err';
+    el.otext.innerHTML = text;
+    el.overlay.classList.remove('hide');
+    document.body.setAttribute('data-state', 'error');
+  }
+
+  function initRenderer() {
+    if (typeof THREE === 'undefined') {
+      throw new Error('THREE is not defined (CDN not loaded)');
+    }
+    if (!THREE.WebGLRenderer) throw new Error('WebGLRenderer is not available');
+
+    renderer = new THREE.WebGLRenderer({
+      canvas: el.canvas, antialias: true, alpha: false, powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.86;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0d10);
+
+    camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.06, 60);
+    camera.position.set(0.55, 1.58, 4.00);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.target.set(0.48, 1.32, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.075;
+    controls.rotateSpeed = 0.55;
+    controls.zoomSpeed = 0.7;
+    controls.panSpeed = 0.55;
+    controls.minDistance = 1.15;
+    controls.maxDistance = 5.6;
+    controls.minPolarAngle = 0.55;
+    controls.maxPolarAngle = 1.62;
+    controls.minAzimuthAngle = -0.62;
+    controls.maxAzimuthAngle = 0.62;
+    controls.screenSpacePanning = true;
+    controls.addEventListener('change', function () { dirty = true; });
+    controls.update();
+
+    /* ограничиваем панорамирование комнатой */
+    controls.addEventListener('change', function () {
+      var t = controls.target;
+      var cx = Math.max(-1.35, Math.min(1.35, t.x));
+      var cy = Math.max(0.55, Math.min(2.15, t.y));
+      var cz = Math.max(-0.55, Math.min(1.5, t.z));
+      if (cx !== t.x || cy !== t.y || cz !== t.z) {
+        var dx = cx - t.x, dy = cy - t.y, dz = cz - t.z;
+        t.set(cx, cy, cz);
+        camera.position.x += dx; camera.position.y += dy; camera.position.z += dz;
+      }
+    });
+
+    /* окружение для реалистичных бликов (PBR) */
+    try {
+      pmrem = new THREE.PMREMGenerator(renderer);
+      var envRT = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04);
+      scene.environment = envRT.texture;
+    } catch (e) {
+      console.warn('environment skipped:', e);
+    }
+  }
+
+  /* =====================================================================
+     Процедурные текстуры (canvas → THREE.CanvasTexture)
+     ===================================================================== */
+  function cv(w, h) {
+    var c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    return c;
+  }
+  function rnd(seed) {
+    var s = seed || 1;
+    return function () { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
+  }
+  function grain(ctx, w, h, amp, seed) {
+    var img = ctx.getImageData(0, 0, w, h), d = img.data, r = rnd(seed || 7);
+    for (var i = 0; i < d.length; i += 4) {
+      var n = (r() - 0.5) * amp;
+      d[i] += n; d[i + 1] += n; d[i + 2] += n;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  /* --- бетон / штукатурка: мягкие пятна + мелкое зерно --- */
+  function makeConcrete() {
+    var w = 1024, h = 704, c = cv(w, h), g = c.getContext('2d');
+    g.fillStyle = '#cec6b9'; g.fillRect(0, 0, w, h);
+    var r = rnd(11);
+    for (var i = 0; i < 240; i++) {
+      var x = r() * w, y = r() * h, rad = 30 + r() * 190;
+      var grd = g.createRadialGradient(x, y, 0, x, y, rad);
+      var light = r() > 0.5;
+      grd.addColorStop(0, light ? 'rgba(255,250,240,0.08)' : 'rgba(120,108,94,0.07)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grd; g.beginPath(); g.arc(x, y, rad, 0, 6.284); g.fill();
+    }
+    /* широкие «затирочные» полосы */
+    g.globalAlpha = 0.05;
+    for (var k = 0; k < 26; k++) {
+      g.strokeStyle = k % 2 ? '#ffffff' : '#8b8175';
+      g.lineWidth = 6 + r() * 22;
+      g.beginPath();
+      var yy = r() * h;
+      g.moveTo(-40, yy);
+      g.bezierCurveTo(w * 0.3, yy + (r() - 0.5) * 90, w * 0.7, yy + (r() - 0.5) * 90, w + 40, yy + (r() - 0.5) * 60);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    grain(g, w, h, 11, 3);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = maxAniso;
+    return t;
+  }
+
+  /* --- ламинат: доски со стыками и тонким рисунком --- */
+  function makeLaminate() {
+    var w = 512, h = 512, c = cv(w, h), g = c.getContext('2d');
+    var r = rnd(23);
+    var rows = 5, rh = h / rows;
+    for (var i = 0; i < rows; i++) {
+      var base = 62 + r() * 26;
+      g.fillStyle = 'rgb(' + Math.round(base * 1.06) + ',' + Math.round(base * 0.92) + ',' + Math.round(base * 0.78) + ')';
+      g.fillRect(0, i * rh, w, rh);
+      /* тонкие прожилки по доске */
+      for (var j = 0; j < 26; j++) {
+        g.strokeStyle = 'rgba(' + (r() > 0.5 ? '30,22,16' : '150,132,110') + ',' + (0.05 + r() * 0.1) + ')';
+        g.lineWidth = 0.6 + r() * 2.2;
+        var yy = i * rh + r() * rh;
+        g.beginPath(); g.moveTo(0, yy);
+        g.bezierCurveTo(w * 0.35, yy + (r() - 0.5) * 8, w * 0.7, yy + (r() - 0.5) * 8, w, yy + (r() - 0.5) * 6);
+        g.stroke();
+      }
+      /* стык доски */
+      g.fillStyle = 'rgba(20,14,10,0.55)';
+      g.fillRect(0, i * rh, w, 1.6);
+      g.fillStyle = 'rgba(255,255,255,0.05)';
+      g.fillRect(0, i * rh + 1.6, w, 1);
+      /* вертикальный торец со сдвигом */
+      var jx = Math.floor(r() * w);
+      g.fillStyle = 'rgba(20,14,10,0.5)';
+      g.fillRect(jx, i * rh, 1.4, rh);
+    }
+    grain(g, w, h, 9, 5);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3.2, 3.2);
+    t.anisotropy = maxAniso;
+    return t;
+  }
+
+  /* --- ткань шторы: вертикальная фактура --- */
+  function makeFabric() {
+    var w = 256, h = 256, c = cv(w, h), g = c.getContext('2d');
+    g.fillStyle = '#4a4b47'; g.fillRect(0, 0, w, h);
+    var r = rnd(31);
+    for (var x = 0; x < w; x++) {
+      var v = 0.5 + 0.5 * Math.sin(x * 0.9) * 0.06 + (r() - 0.5) * 0.05;
+      g.fillStyle = 'rgba(255,255,255,' + Math.max(0, v * 0.09) + ')';
+      g.fillRect(x, 0, 1, h);
+    }
+    for (var i = 0; i < 160; i++) {
+      g.fillStyle = 'rgba(0,0,0,' + (r() * 0.06) + ')';
+      g.fillRect(r() * w, 0, 1 + r() * 2, h);
+    }
+    grain(g, w, h, 8, 9);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(9, 3);
+    t.anisotropy = maxAniso;
+    return t;
+  }
+
+  /* --- максимальный пегборд 4×3: 12 квадратных панелей --- */
+  function makePegboardMax() {
+    var W = 1600, H = 1200, c = cv(W, H), g = c.getContext('2d');
+    var r = rnd(77);
+    var pw = W / 4, ph = H / 3;
+
+    /* основа: тёмный МДФ с мягким вертикальным градиентом */
+    var bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#26292c');
+    bg.addColorStop(0.55, '#1e2124');
+    bg.addColorStop(1, '#171a1c');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+
+    /* 12 панелей: лёгкая разница тона, вертикальная фактура и фаска */
+    for (var ry = 0; ry < 3; ry++) {
+      for (var rx = 0; rx < 4; rx++) {
+        var px = rx * pw, py = ry * ph;
+        var v = 0.5 + (r() - 0.5) * 0.05;
+        g.fillStyle = 'rgba(255,255,255,' + (v * 0.045).toFixed(3) + ')';
+        g.fillRect(px + 3, py + 3, pw - 6, ph - 6);
+        for (var i = 0; i < 34; i++) {
+          var lx = px + 5 + r() * (pw - 10);
+          g.fillStyle = 'rgba(255,255,255,' + (0.016 + r() * 0.030).toFixed(3) + ')';
+          g.fillRect(lx, py + 4, 1 + r() * 1.5, ph - 8);
+        }
+        /* фаска панели: светлая верхняя/левая кромка, тень снизу/справа */
+        g.fillStyle = 'rgba(214,224,230,0.16)';
+        g.fillRect(px + 3, py + 3, pw - 6, 2);
+        g.fillRect(px + 3, py + 3, 2, ph - 6);
+        g.fillStyle = 'rgba(0,0,0,0.55)';
+        g.fillRect(px + 3, py + ph - 5, pw - 6, 2);
+        g.fillRect(px + pw - 5, py + 3, 2, ph - 6);
+      }
+    }
+
+    /* сетка отверстий: вертикальные щели, как у каталожного пегборда */
+    var cols = 26, rows = 18;
+    var gapX = W / cols, gapY = H / rows;
+    var sw = Math.max(7, Math.round(gapX * 0.16));
+    var sh = Math.max(22, Math.round(gapY * 0.50));
+    for (var row = 0; row < rows; row++) {
+      for (var col = 0; col < cols; col++) {
+        var hx = Math.round((col + 0.5) * gapX - sw / 2);
+        var hy = Math.round((row + 0.5) * gapY - sh / 2);
+        /* тень в отверстии */
+        g.fillStyle = 'rgba(0,0,0,0.88)';
+        g.beginPath();
+        g.roundRect(hx, hy, sw, sh, sw / 2);
+        g.fill();
+        g.fillStyle = 'rgba(0,0,0,0.62)';
+        g.beginPath();
+        g.roundRect(hx - 1, hy - 1, sw + 2, sh + 2, (sw + 2) / 2);
+        g.fill();
+        /* тонкий блик по нижней кромке */
+        g.fillStyle = 'rgba(190,200,205,0.10)';
+        g.beginPath();
+        g.roundRect(hx + 1, hy + sh - 3, sw - 2, 2, 1);
+        g.fill();
+      }
+    }
+
+    /* швы между панелями: тёмная канавка + светлая фаска */
+    for (var sx = 1; sx < 4; sx++) {
+      var x = sx * pw;
+      g.fillStyle = '#050607';
+      g.fillRect(x - 3, 0, 6, H);
+      g.fillStyle = 'rgba(214,224,230,0.22)';
+      g.fillRect(x + 3, 0, 2, H);
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(x - 7, 0, 4, H);
+    }
+    for (var sy = 1; sy < 3; sy++) {
+      var y = sy * ph;
+      g.fillStyle = '#050607';
+      g.fillRect(0, y - 3, W, 6);
+      g.fillStyle = 'rgba(214,224,230,0.22)';
+      g.fillRect(0, y + 3, W, 2);
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(0, y - 7, W, 4);
+    }
+
+    /* внешняя кромка доски */
+    g.strokeStyle = '#070809';
+    g.lineWidth = 10;
+    g.strokeRect(5, 5, W - 10, H - 10);
+    g.strokeStyle = 'rgba(255,255,255,0.10)';
+    g.lineWidth = 2;
+    g.strokeRect(11, 11, W - 22, H - 22);
+
+    /* лёгкая зернистость и виньетка */
+    grain(g, W, H, 6, 23);
+    var vg = g.createRadialGradient(W * 0.5, H * 0.45, H * 0.2, W * 0.5, H * 0.5, W * 0.72);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.34)');
+    g.fillStyle = vg;
+    g.fillRect(0, 0, W, H);
+
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.anisotropy = maxAniso;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    return t;
+  }
+
+  /* --- экран монитора: обои + окна --- */
+  function makeScreen(w, h, seed) {
+    var c = cv(w, h), g = c.getContext('2d');
+    var grd = g.createLinearGradient(0, 0, w, h);
+    grd.addColorStop(0, '#16324f'); grd.addColorStop(0.5, '#1d5b6e'); grd.addColorStop(1, '#0d1b28');
+    g.fillStyle = grd; g.fillRect(0, 0, w, h);
+    var r = rnd(seed || 3);
+    for (var i = 0; i < 5; i++) {
+      g.fillStyle = 'rgba(255,255,255,' + (0.16 + r() * 0.1) + ')';
+      g.fillRect(r() * w * 0.35, r() * h * 0.25, w * (0.2 + r() * 0.2), h * (0.16 + r() * 0.16));
+    }
+    g.fillStyle = 'rgba(255,255,255,0.13)';
+    g.fillRect(0, h - h * 0.09, w, h * 0.09);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    return t;
+  }
+
+  /* --- мягкое свечение вокруг LED-рамки --- */
+  function makeGlow(w, h, radius) {
+    var px = 256, py = Math.max(64, Math.round(256 * h / w));
+    var c = cv(px, py), g = c.getContext('2d');
+    g.clearRect(0, 0, px, py);
+    var pad = px * 0.09;
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = Math.max(2, px * 0.022);
+    g.shadowColor = '#ffffff';
+    g.shadowBlur = px * 0.12;
+    var r2 = Math.min(pad * 1.6, px * 0.16);
+    g.beginPath();
+    g.moveTo(pad + r2, pad);
+    g.lineTo(px - pad - r2, pad);
+    g.quadraticCurveTo(px - pad, pad, px - pad, pad + r2);
+    g.lineTo(px - pad, py - pad - r2);
+    g.quadraticCurveTo(px - pad, py - pad, px - pad - r2, py - pad);
+    g.lineTo(pad + r2, py - pad);
+    g.quadraticCurveTo(pad, py - pad, pad, py - pad - r2);
+    g.lineTo(pad, pad + r2);
+    g.quadraticCurveTo(pad, pad, pad + r2, pad);
+    g.stroke();
+    /* второй, более размытый проход */
+    g.shadowBlur = px * 0.2;
+    g.globalAlpha = 0.75;
+    g.stroke();
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    return t;
+  }

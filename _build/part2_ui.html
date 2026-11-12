@@ -1,0 +1,137 @@
+<!-- ================= БОКОВАЯ ПАНЕЛЬ ================= -->
+<aside id="panel" aria-label="Настройки визуализации">
+  <header>
+    <div class="brand">
+      <div class="logo"><div><s></s><s></s><s></s></div></div>
+      <div>
+        <div class="ttl">MDF Wall Planner</div>
+        <div class="sub">3D-визуализатор стены</div>
+      </div>
+    </div>
+    <button id="collapse" class="iconbtn" title="Свернуть / развернуть панель" aria-label="Свернуть панель">‹</button>
+  </header>
+
+  <div class="pbody">
+    <label class="master" id="masterRow" for="ai">
+      <span class="switch">
+        <input type="checkbox" id="ai">
+        <span class="track"><span class="thumb"></span></span>
+      </span>
+      <span>
+        <span class="mtitle">AI-дизайн для школьника</span>
+        <span class="mhint">Готовая эргономичная конфигурация</span>
+      </span>
+    </label>
+
+    <section class="sec">
+      <h3>Текстура МДФ</h3>
+      <div class="selwrap">
+        <select id="decor" aria-label="Текстура МДФ">
+          <option value="0">Бетон Чикаго</option>
+          <option value="1">Дуб светлый</option>
+          <option value="2">Пекан</option>
+          <option value="3">Орех Бразильский</option>
+        </select>
+      </div>
+      <div class="decorinfo">
+        <span class="swatch" id="swatch"></span>
+        <span id="decorinfo">—</span>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h3>Покрытие МДФ</h3>
+      <div class="cards">
+        <label class="card">
+          <input type="radio" name="mode" value="A">
+          <span class="dot"></span>
+          <span class="ctxt">
+            <span class="cname">Вся стена</span>
+            <span class="cdesc">Панели закрывают стену полностью, картина скрыта</span>
+          </span>
+        </label>
+        <label class="card">
+          <input type="radio" name="mode" value="B">
+          <span class="dot"></span>
+          <span class="ctxt">
+            <span class="cname">Вокруг картины</span>
+            <span class="cdesc">Панели обрамляют картину; «Максимум» скрывает её</span>
+          </span>
+        </label>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h3>LED-подсветка</h3>
+      <label class="chk" id="ledPicRow">
+        <input type="checkbox" id="ledPic">
+        <span class="box"></span>
+        <span class="lbl">По контуру картины
+          <small id="ledPicHint">доступно в режиме «Вокруг картины»</small>
+        </span>
+      </label>
+      <label class="chk" id="ledWallRow">
+        <input type="checkbox" id="ledWall">
+        <span class="box"></span>
+        <span class="lbl">По периметру стены
+          <small>световая рамка по краю панелей</small>
+        </span>
+      </label>
+      <label class="chk" id="ledPegRow">
+        <input type="checkbox" id="ledPeg">
+        <span class="box"></span>
+        <span class="lbl">По периметру пегборда
+          <small id="ledPegHint">доступно, когда пегборд включён</small>
+        </span>
+      </label>
+    </section>
+
+    <section class="sec">
+      <h3>Свет в комнате</h3>
+      <div class="pills" id="lightPills">
+        <label class="pill"><input type="radio" name="light" value="0"><i style="background:#ffb066"></i>Тёплый жёлтый</label>
+        <label class="pill"><input type="radio" name="light" value="1"><i style="background:#ffd9b8"></i>Тёплый белый</label>
+        <label class="pill"><input type="radio" name="light" value="2"><i style="background:#f4f7ff"></i>Нейтральный</label>
+        <label class="pill"><input type="radio" name="light" value="3"><i style="background:#cfe0ff"></i>Холодный</label>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h3>Пегборд</h3>
+      <div class="pills" id="pegPills">
+        <label class="pill"><input type="radio" name="peg" value="0">Нет</label>
+        <label class="pill"><input type="radio" name="peg" value="1">Над столом</label>
+        <label class="pill"><input type="radio" name="peg" value="2">По центру</label>
+        <label class="pill"><input type="radio" name="peg" value="3">Максимум</label>
+      </div>
+    </section>
+
+    <section class="sec">
+      <label class="chk">
+        <input type="checkbox" id="corner">
+        <span class="box"></span>
+        <span class="lbl">Расширение в правый угол
+          <small>заполнить МДФ участок до занавески</small>
+        </span>
+      </label>
+    </section>
+
+    <div class="foot">
+      <div class="hint">ЛКМ — вращение · колесо — зум · ПКМ — сдвиг<br>Обзор ограничен передней полусферой комнаты.</div>
+      <button id="reset" class="ghost">Сбросить вид</button>
+    </div>
+  </div>
+</aside>
+
+<div id="overlay">
+  <div class="ocard" id="ocard">
+    <div class="spinner" id="spin"></div>
+    <h2 id="otitle">Собираем сцену…</h2>
+    <p id="otext">Загрузка текстур и окружения</p>
+  </div>
+</div>
+
+<!-- Three.js: глобальная сборка + OrbitControls + окружение для PBR -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/environments/RoomEnvironment.js"></script>

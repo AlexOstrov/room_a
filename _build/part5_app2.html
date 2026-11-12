@@ -1,0 +1,477 @@
+  /* =====================================================================
+     Материалы
+     ===================================================================== */
+  var M = {};                       /* общие материалы */
+  var mdfMaterials = [];            /* 4 материала МДФ, по одному на декор */
+  var texWall, texFloor, texFabric, texPeg, texPegMax, texPic, texScreen, texLaptop;
+
+  function loadImage(src) {
+    return new Promise(function (res, rej) {
+      var im = new Image();
+      im.onload = function () { res(im); };
+      im.onerror = function () { rej(new Error('Не удалось прочитать встроенную текстуру')); };
+      im.src = src;
+    });
+  }
+
+  function texFromImage(img, srgb) {
+    var t = new THREE.Texture(img);
+    t.needsUpdate = true;
+    if (srgb) t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = maxAniso;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    return t;
+  }
+
+  function buildMaterials() {
+    texWall = makeConcrete();
+    texFloor = makeLaminate();
+    texFabric = makeFabric();
+    texScreen = makeScreen(512, 288, 5);
+    texLaptop = makeScreen(420, 260, 17);
+
+    M.wall = new THREE.MeshStandardMaterial({
+      map: texWall, bumpMap: texWall, bumpScale: 0.012,
+      color: 0xf2ece3, roughness: 0.93, metalness: 0.0, envMapIntensity: 0.10
+    });
+    M.floor = new THREE.MeshStandardMaterial({
+      map: texFloor, color: 0xffffff, roughness: 0.42, metalness: 0.03, envMapIntensity: 0.40
+    });
+    M.ceiling = new THREE.MeshStandardMaterial({ color: 0xf1eee8, roughness: 0.96, metalness: 0.0 });
+    M.molding = new THREE.MeshStandardMaterial({ color: 0xf7f4ee, roughness: 0.55, metalness: 0.0 });
+    M.edge = new THREE.MeshStandardMaterial({ color: 0x2c2a28, roughness: 0.72, metalness: 0.05 });
+    M.desk = new THREE.MeshStandardMaterial({ color: 0x2b1b11, roughness: 0.48, metalness: 0.04, envMapIntensity: 0.28 });
+    M.deskDark = new THREE.MeshStandardMaterial({ color: 0x1e1510, roughness: 0.55, metalness: 0.04, envMapIntensity: 0.2 });
+    M.metal = new THREE.MeshStandardMaterial({ color: 0x24282d, roughness: 0.36, metalness: 0.82, envMapIntensity: 0.6 });
+    M.plastic = new THREE.MeshStandardMaterial({ color: 0x0f1114, roughness: 0.46, metalness: 0.10, envMapIntensity: 0.3 });
+    M.white = new THREE.MeshStandardMaterial({ color: 0xe9e6df, roughness: 0.5, metalness: 0.02 });
+    M.paper = new THREE.MeshStandardMaterial({ color: 0xf5f1e7, roughness: 0.88, metalness: 0.0 });
+    M.door = new THREE.MeshStandardMaterial({ color: 0x241f1b, roughness: 0.52, metalness: 0.05 });
+    M.glass = new THREE.MeshStandardMaterial({ color: 0x0d1013, roughness: 0.12, metalness: 0.4, envMapIntensity: 1.0 });
+
+    texPic = texFromImage(M.pictureImage, true);
+    M.picture = new THREE.MeshStandardMaterial({ map: texPic, roughness: 0.62, metalness: 0.0, envMapIntensity: 0.32 });
+
+    texPeg = texFromImage(M.pegImage, true);
+    M.peg = new THREE.MeshStandardMaterial({ map: texPeg, roughness: 0.72, metalness: 0.08, envMapIntensity: 0.35 });
+
+    /* «Максимум»: 12 квадратных панелей 4×3, приближенных к реальному
+       каталожному пегборду (щели, швы, фаска, лёгкая виньетка). */
+    texPegMax = makePegboardMax();
+    texPegMax.wrapS = texPegMax.wrapT = THREE.ClampToEdgeWrapping;
+    M.pegMax = new THREE.MeshStandardMaterial({
+      map: texPegMax, roughness: 0.74, metalness: 0.10, envMapIntensity: 0.30
+    });
+
+    M.curtain = new THREE.MeshStandardMaterial({
+      map: texFabric, color: 0xc6c3ba, roughness: 0.95, metalness: 0.0,
+      side: THREE.DoubleSide, envMapIntensity: 0.25
+    });
+
+    M.screen = new THREE.MeshStandardMaterial({
+      color: 0x000000, emissive: 0xffffff, emissiveMap: texScreen,
+      emissiveIntensity: 1.15, roughness: 0.18, metalness: 0.0
+    });
+    M.screenLaptop = new THREE.MeshStandardMaterial({
+      color: 0x000000, emissive: 0xffffff, emissiveMap: texLaptop,
+      emissiveIntensity: 1.0, roughness: 0.2, metalness: 0.0
+    });
+
+    /* МДФ: своя текстура, шероховатость и металличность на каждый декор */
+    mdfMaterials = DECORS.map(function (d, i) {
+      var t = texFromImage(M.decorImages[i], true);
+      var m = new THREE.MeshStandardMaterial({
+        map: t,
+        bumpMap: t, bumpScale: 0.0075,
+        roughness: d.rough,
+        metalness: d.metal,
+        envMapIntensity: 0.28
+      });
+      m.userData.decor = i;
+      m.userData.tex = t;
+      return m;
+    });
+  }
+
+  /* =====================================================================
+     Помещение: пол, потолок, стены, плинтус, карниз, дверь
+     ===================================================================== */
+  var room, pictureGroup, pegGroup, pegMaxDecor, panelGroup, ledGroup;
+
+  function buildRoom() {
+    room = new THREE.Group();
+    scene.add(room);
+
+    var floor = new THREE.Mesh(new THREE.PlaneGeometry(WALL.W, 4.4), M.floor);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, 2.2);
+    floor.receiveShadow = true;
+    room.add(floor);
+
+    var ceil = new THREE.Mesh(new THREE.PlaneGeometry(WALL.W, 4.4), M.ceiling);
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set(0, WALL.H, 2.2);
+    room.add(ceil);
+
+    var mainWall = new THREE.Mesh(new THREE.PlaneGeometry(WALL.W, WALL.H), M.wall);
+    mainWall.position.set(0, WALL.H / 2, 0);
+    mainWall.receiveShadow = true;
+    room.add(mainWall);
+
+    var right = new THREE.Mesh(new THREE.PlaneGeometry(1.90, WALL.H), M.wall);
+    right.rotation.y = -Math.PI / 2;
+    right.position.set(WALL.W / 2, WALL.H / 2, 0.95);
+    right.receiveShadow = true;
+    room.add(right);
+
+    var left = new THREE.Mesh(new THREE.PlaneGeometry(4.4, WALL.H), M.wall);
+    left.rotation.y = Math.PI / 2;
+    left.position.set(-WALL.W / 2, WALL.H / 2, 2.2);
+    left.receiveShadow = true;
+    room.add(left);
+
+    /* плинтус и карниз — по главной и правой стене */
+    function strip(w, h, d, x, y, z) {
+      var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M.molding);
+      b.position.set(x, y, z); b.castShadow = false; b.receiveShadow = true;
+      room.add(b); return b;
+    }
+    strip(WALL.W, 0.105, 0.056, 0, WALL.H - 0.052, 0.028);         /* карниз, главная */
+    strip(WALL.W, 0.105, 0.022, 0, 0.052, 0.011);                  /* плинтус, главная */
+    strip(0.056, 0.105, 1.90, WALL.W / 2 - 0.028, WALL.H - 0.052, 0.95);
+    strip(0.022, 0.105, 1.90, WALL.W / 2 - 0.011, 0.052, 0.95);
+
+    /* дверь на левой стене */
+    var door = new THREE.Group();
+    var leaf = new THREE.Mesh(new THREE.BoxGeometry(0.045, 2.04, 0.86), M.door);
+    leaf.position.set(-WALL.W / 2 - 0.001, 1.02, 0.72);
+    leaf.castShadow = true; leaf.receiveShadow = true;
+    door.add(leaf);
+    var top = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.94), M.door);
+    top.position.set(-WALL.W / 2, 2.055, 0.72); door.add(top);
+    var l1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.06, 0.04), M.door);
+    l1.position.set(-WALL.W / 2, 1.03, 0.27); door.add(l1);
+    var l2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.06, 0.04), M.door);
+    l2.position.set(-WALL.W / 2, 1.03, 1.17); door.add(l2);
+    var hd = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.11, 12), M.metal);
+    hd.rotation.z = Math.PI / 2;
+    hd.position.set(-WALL.W / 2 + 0.045, 1.02, 1.06); door.add(hd);
+    room.add(door);
+  }
+
+  /* =====================================================================
+     Стол: столешница, ножки, тумба, монитор, ноутбук, клавиатура
+     ===================================================================== */
+  function buildDesk() {
+    var g = new THREE.Group();
+
+    var top = new THREE.Mesh(new THREE.BoxGeometry(DESK.x1 - DESK.x0, 0.04, DESK.depth), M.desk);
+    top.position.set((DESK.x0 + DESK.x1) / 2, DESK.top - 0.02, DESK.depth / 2 + 0.02);
+    top.castShadow = true; top.receiveShadow = true;
+    g.add(top);
+
+    [[DESK.x0 + 0.05, 0.06], [DESK.x0 + 0.05, DESK.depth - 0.02], [DESK.x1 - 0.05, 0.06], [DESK.x1 - 0.05, DESK.depth - 0.02]]
+      .forEach(function (p) {
+        var leg = new THREE.Mesh(new THREE.BoxGeometry(0.038, DESK.top - 0.04, 0.038), M.metal);
+        leg.position.set(p[0], (DESK.top - 0.04) / 2, p[1] + 0.02);
+        leg.castShadow = true;
+        g.add(leg);
+      });
+
+    /* тумба с белым ящиком */
+    var unit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.54), M.deskDark);
+    unit.position.set(1.06, 0.28, 0.31); unit.castShadow = true; unit.receiveShadow = true;
+    g.add(unit);
+    var drawer = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.012), M.white);
+    drawer.position.set(1.06, 0.38, 0.586);
+    g.add(drawer);
+    var handle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 0.016), M.white);
+    handle.position.set(1.06, 0.38, 0.598);
+    g.add(handle);
+
+    /* монитор */
+    var mBase = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.012, 0.17), M.plastic);
+    mBase.position.set(MON.cx, DESK.top + 0.006, 0.33); mBase.castShadow = true;
+    g.add(mBase);
+    var mCol = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.035), M.metal);
+    mCol.position.set(MON.cx, DESK.top + 0.11, 0.335); mCol.castShadow = true;
+    g.add(mCol);
+    var bezel = new THREE.Mesh(new THREE.BoxGeometry(0.63, 0.365, 0.022), M.plastic);
+    bezel.position.set(MON.cx, MON.top - 0.18, 0.31); bezel.castShadow = true; bezel.receiveShadow = true;
+    g.add(bezel);
+    var scr = new THREE.Mesh(new THREE.PlaneGeometry(0.605, 0.34), M.screen);
+    scr.position.set(MON.cx, MON.top - 0.18, 0.3215);
+    g.add(scr);
+
+    /* ноутбук */
+    var lap = new THREE.Group();
+    lap.position.set(1.02, DESK.top, 0.42);
+    var lbase = new THREE.Mesh(new THREE.BoxGeometry(0.325, 0.014, 0.225), M.metal);
+    lbase.position.set(0, 0.007, 0);
+    lbase.castShadow = true; lbase.receiveShadow = true;
+    lap.add(lbase);
+    var keys = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.003, 0.19), M.plastic);
+    keys.position.set(0, 0.0145, -0.005);
+    lap.add(keys);
+    var lid = new THREE.Mesh(new THREE.BoxGeometry(0.325, 0.215, 0.011), M.metal);
+    lid.position.set(0, 0.105, -0.118);
+    lid.rotation.x = -0.30;
+    lid.castShadow = true;
+    lap.add(lid);
+    var lscreen = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.19), M.screenLaptop);
+    lscreen.position.set(0, 0.105, -0.1115);
+    lscreen.rotation.x = -0.30;
+    lap.add(lscreen);
+    g.add(lap);
+
+    /* клавиатура и мышь */
+    var kb = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.012, 0.13), M.plastic);
+    kb.position.set(1.62, DESK.top + 0.006, 0.5); kb.castShadow = true;
+    g.add(kb);
+    var ms = new THREE.Mesh(new THREE.SphereGeometry(0.045, 18, 12), M.plastic);
+    ms.scale.set(1.0, 0.55, 1.55);
+    ms.position.set(1.94, DESK.top + 0.018, 0.49); ms.castShadow = true;
+    g.add(ms);
+
+    /* мягкая контактная тень под столом */
+    var shC = cv(256, 256), shG = shC.getContext('2d');
+    var rg = shG.createRadialGradient(128, 128, 10, 128, 128, 126);
+    rg.addColorStop(0, 'rgba(0,0,0,0.55)'); rg.addColorStop(0.55, 'rgba(0,0,0,0.22)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+    shG.fillStyle = rg; shG.fillRect(0, 0, 256, 256);
+    var shTex = new THREE.CanvasTexture(shC);
+    var sh = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95),
+      new THREE.MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false, opacity: 0.75 }));
+    sh.rotation.x = -Math.PI / 2;
+    sh.position.set(1.28, 0.004, 0.42);
+    g.add(sh);
+
+    scene.add(g);
+  }
+
+  /* =====================================================================
+     Картина (бумажный постер в тонкой белой рамке)
+     ===================================================================== */
+  function buildPicture() {
+    pictureGroup = new THREE.Group();
+
+    var print = new THREE.Mesh(new THREE.PlaneGeometry(PICT.w, PICT.h), M.picture);
+    print.position.set(PICT.cx, PICT.cy, 0.006);
+    print.receiveShadow = true;
+    pictureGroup.add(print);
+
+    var f = PICT.frame, t = 0.012;
+    var w = PICT.w, h = PICT.h;
+    function bar(bw, bh, x, y) {
+      var b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, t), M.paper);
+      b.position.set(x, y, 0.004);
+      b.castShadow = true; b.receiveShadow = true;
+      pictureGroup.add(b);
+    }
+    bar(w + f * 2, f, PICT.cx, PICT.cy + h / 2 + f / 2);
+    bar(w + f * 2, f, PICT.cx, PICT.cy - h / 2 - f / 2);
+    bar(f, h, PICT.cx - w / 2 - f / 2, PICT.cy);
+    bar(f, h, PICT.cx + w / 2 + f / 2, PICT.cy);
+
+    scene.add(pictureGroup);
+  }
+
+  /* =====================================================================
+     Пегборд
+     ===================================================================== */
+  function buildPegboard() {
+    pegGroup = new THREE.Group();
+    var board = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.014), M.peg);
+    board.castShadow = true; board.receiveShadow = true;
+    pegGroup.add(board);
+    pegGroup.userData.board = board;
+
+    pegMaxDecor = buildPegMaxDecor();
+    pegGroup.add(pegMaxDecor);
+
+    scene.add(pegGroup);
+  }
+
+  /* Декор максимальной доски 4×3: полка с растением и книгами,
+     наушники на крючке, мини-кадры и тёплая гирлянда. Всё — настоящие
+     3D-объекты у поверхности доски, поэтому тени и блики читаются. */
+  function buildPegMaxDecor() {
+    var g = new THREE.Group();
+    var r = Core.pegRect({ peg: 3, mode: 'B' });
+    var w = r.x1 - r.x0, h = r.y1 - r.y0;
+
+    var wood = new THREE.MeshStandardMaterial({ color: 0x9b6a42, roughness: 0.52, metalness: 0.04, envMapIntensity: 0.35 });
+    var woodDark = new THREE.MeshStandardMaterial({ color: 0x5a3a26, roughness: 0.6, metalness: 0.04 });
+    var ceramic = new THREE.MeshStandardMaterial({ color: 0xd9d2c4, roughness: 0.34, metalness: 0.02, envMapIntensity: 0.5 });
+    var soil = new THREE.MeshStandardMaterial({ color: 0x2a1f17, roughness: 0.95, metalness: 0.0 });
+    var leaf = new THREE.MeshStandardMaterial({ color: 0x3f6b3a, roughness: 0.72, metalness: 0.0 });
+    var leafLight = new THREE.MeshStandardMaterial({ color: 0x5c8447, roughness: 0.7, metalness: 0.0 });
+    var cloth = new THREE.MeshStandardMaterial({ color: 0x17191c, roughness: 0.88, metalness: 0.0 });
+    var brass = new THREE.MeshStandardMaterial({ color: 0xb08d57, roughness: 0.3, metalness: 0.82, envMapIntensity: 0.7 });
+    var bookMats = [0x7b4136, 0x3f5a52, 0xd8ccb6].map(function (c) {
+      return new THREE.MeshStandardMaterial({ color: c, roughness: 0.78, metalness: 0.0 });
+    });
+
+    function box(wd, ht, dp, mat, x, y, z, rz) {
+      var m = new THREE.Mesh(new THREE.BoxGeometry(wd, ht, dp), mat);
+      m.position.set(x, y, z);
+      if (rz) m.rotation.z = rz;
+      m.castShadow = true; m.receiveShadow = true;
+      g.add(m);
+      return m;
+    }
+
+    /* --- полка слева --- */
+    var shelfW = Math.min(0.64, w * 0.45);
+    var shelfX = -w / 2 + 0.07 + shelfW / 2;
+    var shelfY = 0.10;
+    box(shelfW, 0.021, 0.115, wood, shelfX, shelfY, 0.070);
+    box(0.018, 0.09, 0.075, woodDark, shelfX - shelfW / 2 + 0.025, shelfY - 0.052, 0.048);
+    box(0.018, 0.09, 0.075, woodDark, shelfX + shelfW / 2 - 0.025, shelfY - 0.052, 0.048);
+
+    /* горшок с растением */
+    var potX = shelfX - shelfW * 0.31, potY = shelfY + 0.062;
+    var pot = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.040, 0.098, 22), ceramic);
+    pot.position.set(potX, potY, 0.072);
+    pot.castShadow = true; pot.receiveShadow = true;
+    g.add(pot);
+    var soilTop = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.006, 20), soil);
+    soilTop.position.set(potX, potY + 0.049, 0.072);
+    g.add(soilTop);
+
+    var leafGeo = new THREE.SphereGeometry(0.055, 10, 8);
+    for (var i = 0; i < 11; i++) {
+      var a = (i / 11) * Math.PI * 2 + 0.25;
+      var tier = i % 3;
+      var leafGroup = new THREE.Group();
+      leafGroup.position.set(potX, potY + 0.055 + tier * 0.026, 0.072);
+      leafGroup.rotation.y = a;
+      var lf = new THREE.Mesh(leafGeo, i % 2 ? leafLight : leaf);
+      lf.position.set(0, 0, 0.055);
+      lf.scale.set(0.42, 0.12, 1.05);
+      lf.rotation.x = -0.42 - tier * 0.08;
+      lf.castShadow = true;
+      leafGroup.add(lf);
+      g.add(leafGroup);
+    }
+    /* пара молодых листьев в центре */
+    for (var j = 0; j < 2; j++) {
+      var young = new THREE.Mesh(leafGeo, leafLight);
+      young.position.set(potX + (j ? 0.014 : -0.012), potY + 0.095 + j * 0.018, 0.074);
+      young.scale.set(0.20, 0.11, 0.55);
+      young.rotation.z = j ? -0.35 : 0.35;
+      young.castShadow = true;
+      g.add(young);
+    }
+
+    /* стопка книг */
+    var bkX = shelfX + shelfW * 0.27;
+    var books = [[0.105, 0.024, 0.078], [0.094, 0.021, 0.072], [0.082, 0.019, 0.066]];
+    var by = shelfY + 0.011;
+    books.forEach(function (b, k) {
+      by += b[1] / 2;
+      box(b[0], b[1], b[2], bookMats[k], bkX, by, 0.072);
+      by += b[1] / 2 + 0.001;
+    });
+
+    /* --- наушники на крючке --- */
+    var hx = 0.22, hy = 0.205;
+    box(0.022, 0.046, 0.014, brass, hx, hy + 0.088, 0.038);
+    var band = new THREE.Mesh(new THREE.TorusGeometry(0.068, 0.011, 8, 26, Math.PI), cloth);
+    band.position.set(hx, hy + 0.005, 0.075);
+    band.castShadow = true;
+    g.add(band);
+    [-0.068, 0.068].forEach(function (dx) {
+      var cup = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.026, 18), cloth);
+      cup.rotation.x = Math.PI / 2;
+      cup.position.set(hx + dx, hy, 0.078);
+      cup.castShadow = true;
+      g.add(cup);
+      var pad = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.006, 16),
+        new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.95 }));
+      pad.rotation.x = Math.PI / 2;
+      pad.position.set(hx + dx, hy, 0.092);
+      g.add(pad);
+    });
+
+    /* --- мини-кадры справа --- */
+    function miniFrame(cx, cy, fw, fh, rot, tint) {
+      var fr = new THREE.Group();
+      fr.position.set(cx, cy, 0.042);
+      fr.rotation.z = rot;
+      var card = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, 0.006), M.paper);
+      card.castShadow = true;
+      fr.add(card);
+      var ph = new THREE.Mesh(new THREE.PlaneGeometry(fw - 0.022, fh - 0.024),
+        new THREE.MeshStandardMaterial({ color: tint, roughness: 0.62, metalness: 0.0 }));
+      ph.position.z = 0.0035;
+      fr.add(ph);
+      var pin = new THREE.Mesh(new THREE.SphereGeometry(0.007, 10, 8), brass);
+      pin.position.set(0, fh / 2 - 0.008, 0.006);
+      fr.add(pin);
+      g.add(fr);
+    }
+    miniFrame(w / 2 - 0.30, 0.27, 0.145, 0.185, -0.07, 0xc9b79b);
+    miniFrame(w / 2 - 0.14, 0.09, 0.135, 0.170, 0.06, 0x8d9c93);
+
+    /* --- гирлянда по верхнему краю --- */
+    var wireMat = new THREE.LineBasicMaterial({ color: 0x2a2420, transparent: true, opacity: 0.9 });
+    var pts = [], bulbs = 9, x0 = -w / 2 + 0.07, x1 = w / 2 - 0.07;
+    var topY = h / 2 - 0.105;
+    for (var s = 0; s <= 28; s++) {
+      var t = s / 28;
+      var px = x0 + (x1 - x0) * t;
+      var sag = 0.045 * (1 - Math.pow(2 * t - 1, 2));
+      pts.push(new THREE.Vector3(px, topY - sag, 0.048));
+    }
+    var wire = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireMat);
+    g.add(wire);
+
+    var bulbGeo = new THREE.SphereGeometry(0.0135, 10, 8);
+    var bulbMat = new THREE.MeshStandardMaterial({
+      color: 0xfff0d4, emissive: 0xffc987, emissiveIntensity: 2.1, roughness: 0.35, metalness: 0.0
+    });
+    for (var b = 1; b < bulbs; b++) {
+      var tb = b / bulbs;
+      var bx = x0 + (x1 - x0) * tb;
+      var sagB = 0.045 * (1 - Math.pow(2 * tb - 1, 2));
+      var bulb = new THREE.Mesh(bulbGeo, bulbMat);
+      bulb.position.set(bx, topY - sagB - 0.012, 0.055);
+      g.add(bulb);
+    }
+
+    g.visible = false;
+    return g;
+  }
+
+  function updatePegboard() {
+    var r = Core.pegRect(state);
+    if (!r) { pegGroup.visible = false; return; }
+    pegGroup.visible = true;
+    var w = r.x1 - r.x0, h = r.y1 - r.y0;
+    var b = pegGroup.userData.board;
+    var isMax = state.peg === 3;
+    b.material = isMax ? M.pegMax : M.peg;
+    b.scale.set(w, h, 1);
+    b.position.set((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, 0.0215);
+
+    if (isMax) {
+      /* пропорции 4:3 совпадают с текстурой — растягиваем её на всю доску */
+      texPegMax.repeat.set(1, 1);
+      texPegMax.offset.set(0, 0);
+      texPegMax.needsUpdate = true;
+    } else {
+      /* «cover»: сохраняем пропорции фотографии пегборда */
+      var ta = texPeg.image.width / texPeg.image.height;
+      var ba = w / h;
+      if (ba > ta) { texPeg.repeat.set(1, ta / ba); texPeg.offset.set(0, (1 - ta / ba) / 2); }
+      else { texPeg.repeat.set(ba / ta, 1); texPeg.offset.set((1 - ba / ta) / 2, 0); }
+      texPeg.needsUpdate = true;
+    }
+
+    pegMaxDecor.visible = isMax;
+    if (isMax) {
+      pegMaxDecor.position.set((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, 0.0286);
+    }
+  }

@@ -1,0 +1,246 @@
+<script>
+/* =====================================================================
+   CORE — чистая логика раскладки (без DOM и без THREE).
+   Блок выделен маркерами: его выполняют unit-тесты в Node.
+   Все размеры — в метрах, координаты стены: X — влево/вправо, Y — вверх.
+   ===================================================================== */
+/*==CORE-BEGIN==*/
+var Core = (function () {
+  'use strict';
+
+  /* ---------- габариты сцены ---------- */
+  var WALL  = { W: 4.4, H: 2.75, DEPTH: 0.016, EDGE: 0.03, PANEL_Y0: 0.06, PANEL_Y1: 2.605 };
+  var PICT  = { w: 2.30, h: 1.25, cx: 0, cy: 1.55, frame: 0.018 };
+  /* пропорции исходного фото пегборда 640 × 445; максимальная доска — 4×3 */
+  var PEG   = { w: 0.92, h: 0.92 * 445 / 640, gap: 0.02, gapAboveMonitor: 0.11,
+                top: 2.61, margin: 0.04, edgePad: 0.028, clear: 0.018,
+                maxAspect: 4 / 3 };
+  var MON   = { cx: 1.63, top: 1.31 };
+  var DESK  = { x0: 0.55, x1: 2.02, depth: 0.62, top: 0.745 };
+  var SLAT  = 0.03967;          /* шаг рейки, 119 мм / 3 */
+  var VSTRETCH = 1.5;           /* базовое растяжение текстуры вдоль волокон */
+
+  /* ---------- каталог декоров (файлы из /panels) ---------- */
+  var DECORS = [
+    { id: 0, file: 'panel_01_beton_chikago.png',   name: 'Бетон Чикаго',      swatch: '#A2A4A5', slats: 3.62, rough: 0.74, metal: 0.02 },
+    { id: 1, file: 'panel_02_dub_svetly.png',      name: 'Дуб светлый',       swatch: '#B29372', slats: 3.31, rough: 0.63, metal: 0.02 },
+    { id: 2, file: 'panel_03_pekan.png',           name: 'Пекан',             swatch: '#A99787', slats: 4.79, rough: 0.61, metal: 0.02 },
+    { id: 3, file: 'panel_04_oreh_brazilskiy.png', name: 'Орех Бразильский',  swatch: '#625C5A', slats: 3.15, rough: 0.55, metal: 0.03 }
+  ];
+
+  var LIGHTS = [
+    { id: 0, name: 'Тёплый жёлтый',  sky: 0xffd2a1, ground: 0x3a2b1c, key: 0xffb877, fill: 0xffcf9e, led: 0xffb46a, hemi: 0.29, keyPow: 1.30, fillPow: 0.22, sidePow: 0.62, exposure: 0.85 },
+    { id: 1, name: 'Тёплый белый',   sky: 0xffe4cc, ground: 0x40352b, key: 0xffd9b8, fill: 0xffe7d2, led: 0xffd9b0, hemi: 0.31, keyPow: 1.34, fillPow: 0.24, sidePow: 0.64, exposure: 0.86 },
+    { id: 2, name: 'Нейтральный',    sky: 0xf2f4f8, ground: 0x3c3f44, key: 0xfff6ea, fill: 0xdfe8f7, led: 0xfff6ec, hemi: 0.33, keyPow: 1.38, fillPow: 0.26, sidePow: 0.68, exposure: 0.87 },
+    { id: 3, name: 'Холодный',       sky: 0xdfeaff, ground: 0x2f3640, key: 0xdce9ff, fill: 0xcbd9f0, led: 0xdfeaff, hemi: 0.33, keyPow: 1.36, fillPow: 0.27, sidePow: 0.68, exposure: 0.88 }
+  ];
+
+  /* ---------- утилиты ---------- */
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function clampInt(v, lo, hi) {
+    v = Math.round(Number(v));
+    if (!isFinite(v)) v = lo;
+    return Math.max(lo, Math.min(hi, v));
+  }
+
+  /* ---------- стартовое состояние ---------- */
+  function defaults() {
+    return {
+      decor: 1,
+      mode: 'B',
+      peg: 1,
+      light: 2,
+      corner: false,
+      ai: false,
+      led: { picture: false, wall: false, peg: false }
+    };
+  }
+
+  /* ---------- нормализация состояния (правила видимости) ---------- */
+  function sanitize(s) {
+    var d = defaults();
+    s = s || {};
+    var out = {
+      decor: clampInt(s.decor !== undefined ? s.decor : d.decor, 0, DECORS.length - 1),
+      mode: (s.mode === 'A' ? 'A' : 'B'),
+      peg: clampInt(s.peg !== undefined ? s.peg : d.peg, 0, 3),
+      light: clampInt(s.light !== undefined ? s.light : d.light, 0, 3),
+      corner: !!s.corner,
+      ai: !!s.ai,
+      led: {
+        picture: !!(s.led && s.led.picture),
+        wall: !!(s.led && s.led.wall),
+        peg: !!(s.led && s.led.peg)
+      }
+    };
+    /* «Максимум» занимает всю ширину рабочей зоны, поэтому картина
+       убирается со стены — LED её контура тоже больше не нужен. */
+    if (!pictureVisible(out)) out.led.picture = false;
+    /* LED пегборда существует только когда пегборд есть */
+    if (out.peg === 0) out.led.peg = false;
+    return out;
+  }
+
+  /* Картина видна только в режиме «Вокруг картины» и только пока
+     не выбран максимальный пегборд 4×3. */
+  function pictureVisible(state) {
+    return state.mode === 'B' && (state.peg | 0) !== 3;
+  }
+
+  /* ---------- геометрия ---------- */
+  function pictureRect() {
+    return {
+      x0: PICT.cx - PICT.w / 2, x1: PICT.cx + PICT.w / 2,
+      y0: PICT.cy - PICT.h / 2, y1: PICT.cy + PICT.h / 2
+    };
+  }
+
+  function pegRect(state) {
+    var p = state.peg | 0;
+    if (p === 0) return null;
+    var topLimit = PEG.top;
+    var y0, x0, x1, h, w;
+
+    if (p === 1) {                       /* над монитором */
+      w = PEG.w; h = PEG.h;
+      /* если доска упирается в картину, сдвигаем её вправо: LED-рамка
+         не должна пересекать раму полотна */
+      x0 = Math.max(MON.cx - w / 2,
+                    pictureRect().x1 + PICT.frame + PEG.edgePad + PEG.clear);
+      x1 = x0 + w;
+      y0 = MON.top + PEG.gapAboveMonitor;
+      if (y0 + h > topLimit) { h = topLimit - y0; }
+      return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
+    }
+    if (p === 2) {                       /* по центру ширины стены */
+      w = PEG.w; h = PEG.h;
+      y0 = MON.top + PEG.gapAboveMonitor;
+      if (state.mode === 'B') {
+        /* оставляем место не только доске, но и её LED-рамке */
+        y0 = Math.max(y0, pictureRect().y1 + PICT.frame + PEG.edgePad + PEG.clear);
+      }
+      if (y0 + h > topLimit) {
+        var k = Math.max(0.45, (topLimit - y0) / h);
+        h = h * k; w = w * k;
+      }
+      x0 = -w / 2; x1 = w / 2;
+      return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
+    }
+    /* p === 3 — максимальный 4×3: 4 столбца × 3 ряда квадратов.
+       По требованию дизайнера доска ровно по ширине стола и
+       центрирована над ним; пропорции 4:3, картина при этом скрыта. */
+    x0 = DESK.x0;
+    x1 = DESK.x1;
+    w = x1 - x0;
+    h = w / PEG.maxAspect;
+    y0 = MON.top + PEG.gapAboveMonitor;
+    if (y0 + h > topLimit) h = topLimit - y0;
+    return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
+  }
+
+  /* Прямоугольники МДФ-панелей.
+     A — одна плита на всю стену.
+     B — четыре области вокруг выреза под картину (шов идёт по канавке).
+     «Максимум» скрывает картину, поэтому панели снова закрывают стену
+     целиком — без пустого выреза на месте полотна. */
+  function panelRects(state) {
+    var x0 = -WALL.W / 2 + WALL.EDGE, x1 = WALL.W / 2 - WALL.EDGE;
+    var y0 = WALL.PANEL_Y0, y1 = WALL.PANEL_Y1;
+    if (!pictureVisible(state)) {
+      return [{ x0: x0, x1: x1, y0: y0, y1: y1 }];
+    }
+    var r = pictureRect();
+    var g = 0.02;
+    var px0 = r.x0 - g, px1 = r.x1 + g, py0 = r.y0 - g, py1 = r.y1 + g;
+    return [
+      { x0: x0,  x1: px0, y0: y0,  y1: y1  },   /* слева  */
+      { x0: px1, x1: x1,  y0: y0,  y1: y1  },   /* справа */
+      { x0: px0, x1: px1, y0: y0,  y1: py0 },   /* снизу  */
+      { x0: px0, x1: px1, y0: py1, y1: y1  }    /* сверху */
+    ];
+  }
+
+  /* МДФ на правой (торцевой) стене: от угла до занавески */
+  function cornerRect() {
+    /* u — расстояние от угла вдоль правой стены до начала шторы */
+    return { u0: 0.02, u1: 0.96, y0: WALL.PANEL_Y0, y1: WALL.PANEL_Y1 };
+  }
+
+  /* Рамки LED: прямоугольники + отступ от поверхности */
+  function ledRects(state) {
+    var out = {};
+    out.wall = { x0: -WALL.W / 2 + 0.042, x1: WALL.W / 2 - 0.042, y0: 0.075, y1: WALL.PANEL_Y1 - 0.015, z: 0.022 };
+    if (pictureVisible(state)) {
+      var r = pictureRect(), e = 0.030;
+      out.picture = { x0: r.x0 - e, x1: r.x1 + e, y0: r.y0 - e, y1: r.y1 + e, z: 0.020 };
+    }
+    var pr = pegRect(state);
+    if (pr) {
+      out.peg = {
+        x0: pr.x0 - PEG.edgePad, x1: pr.x1 + PEG.edgePad,
+        y0: pr.y0 - PEG.edgePad, y1: pr.y1 + PEG.edgePad,
+        z: 0.046
+      };
+    }
+    return out;
+  }
+
+  /* Физический размер одного повтора текстуры для выбранного декора.
+     Ширина повтора берётся из manifest.json (одинаковая ширина рейки),
+     а высота растягивается минимум до высоты стены: исходный тайл
+     не бесшовен по V, и при 5 повторах на стене были видны
+     горизонтальные полосы. Волокна при этом идут вдоль реек,
+     поэтому вертикальное растяжение не разрушает рисунок. */
+  function decorTile(decorIndex) {
+    var d = DECORS[clampInt(decorIndex, 0, DECORS.length - 1)];
+    var tileW = d.slats * SLAT;
+    var tileH = Math.max(tileW * 4 * VSTRETCH, WALL.H);
+    return { tileW: tileW, tileH: tileH, slats: d.slats, name: d.name };
+  }
+
+  /* UV по мировым координатам — панели стыкуются без разрыва рисунка */
+  function uvAt(x, y, tileW, tileH) {
+    return { u: x / tileW, v: y / tileH };
+  }
+
+  /* ---------- пресет AI ---------- */
+  var AI_PRESET = {
+    decor: 3,            /* тёмный орех — контраст к светлой мебели */
+    mode: 'B',           /* картина скрыта самим «Максимумом», панели — на всю стену */
+    peg: 3,              /* максимальный пегборд над рабочей зоной */
+    light: 2,            /* нейтральный белый — фокус на учёбе */
+    corner: true,
+    ai: true,
+    led: { picture: false, wall: false, peg: true }  /* LED по пегборду = над столом */
+  };
+
+  function presetState() { return sanitize(clone(AI_PRESET)); }
+
+  /* ---------- сводка для интерфейса ---------- */
+  function summary(state) {
+    var t = decorTile(state.decor);
+    return {
+      name: DECORS[state.decor].name,
+      swatch: DECORS[state.decor].swatch,
+      slats: t.slats,
+      tileWmm: Math.round(t.tileW * 1000),
+      tileHmm: Math.round(t.tileH * 1000),
+      pictureVisible: pictureVisible(state),
+      pegVisible: state.peg > 0,
+      ledPictureAvailable: pictureVisible(state),
+      ledPegAvailable: state.peg > 0
+    };
+  }
+
+  return {
+    WALL: WALL, PICT: PICT, PEG: PEG, MON: MON, DESK: DESK, SLAT: SLAT, VSTRETCH: VSTRETCH,
+    DECORS: DECORS, LIGHTS: LIGHTS, AI_PRESET: AI_PRESET,
+    clone: clone, defaults: defaults, sanitize: sanitize, presetState: presetState,
+    pictureVisible: pictureVisible,
+    pictureRect: pictureRect, pegRect: pegRect, panelRects: panelRects,
+    cornerRect: cornerRect, ledRects: ledRects, decorTile: decorTile, uvAt: uvAt,
+    summary: summary
+  };
+})();
+/*==CORE-END==*/
+</script>

@@ -1,0 +1,94 @@
+{
+  "schema": "room_a/mdf-slats-textures/1",
+  "created": "2026-11-11",
+  "units": "mm",
+  "product": {
+    "type": "MDF slat wall panel",
+    "panel_size_mm": [2700, 119, 16],
+    "slats_per_panel": 3,
+    "slat_pitch_mm": 39.67,
+    "area_m2": 0.32
+  },
+  "texture": {
+    "width_px": 1024,
+    "height_px": 4096,
+    "aspect": [1, 4],
+    "format": "PNG",
+    "mode": "RGB",
+    "alpha": false,
+    "bit_depth": 8,
+    "color_space": "sRGB",
+    "icc_profile": "none (assumed sRGB)"
+  },
+  "map_usage": {
+    "type": "base color / diffuse",
+    "metalness": 0.0,
+    "roughness_range": [0.6, 0.8],
+    "normal_map": "not included",
+    "uv_axis": "V = vertical (along slats)"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "file": "panel_01_beton_chikago.png",
+      "decor_ru": "Бетон Чикаго",
+      "decor_name_confirmed": true,
+      "source": "1.png",
+      "mean_rgb": [162, 164, 165],
+      "hex": "#A2A4A5",
+      "slats_per_tile": 3.6,
+      "uv_tile_mm": [143, 574],
+      "uv_tile_mm_nominal_119": [119, 476],
+      "notes": "Нейтральный серый бетон, тонкие светлые канты реек. Наиболее однородный из четырёх."
+    },
+    {
+      "id": 2,
+      "file": "panel_02_dub_svetly.png",
+      "decor_ru": "Дуб светлый",
+      "decor_name_confirmed": false,
+      "source": "2.png",
+      "mean_rgb": [178, 147, 114],
+      "hex": "#B29372",
+      "slats_per_tile": 3.3,
+      "uv_tile_mm": [131, 526],
+      "uv_tile_mm_nominal_119": [119, 476],
+      "notes": "Тёплый светлый дуб с продольной текстурой. Точное название декора не подтверждено (этикетка на фото не читается), имя рабочее."
+    },
+    {
+      "id": 3,
+      "file": "panel_03_pekan.png",
+      "decor_ru": "Пекан",
+      "decor_name_confirmed": true,
+      "source": "3.png",
+      "mean_rgb": [169, 151, 135],
+      "hex": "#A99787",
+      "slats_per_tile": 4.8,
+      "uv_tile_mm": [190, 762],
+      "uv_tile_mm_nominal_119": [119, 476],
+      "notes": "Светло-бежевый пекан, тонкие рейки, сохранены натуральные сучки и тёмные прожилки."
+    },
+    {
+      "id": 4,
+      "file": "panel_04_oreh_brazilskiy.png",
+      "decor_ru": "Орех Бразильский",
+      "decor_name_confirmed": true,
+      "source": "4.png",
+      "mean_rgb": [98, 92, 90],
+      "hex": "#625C5A",
+      "slats_per_tile": 3.15,
+      "uv_tile_mm": [125, 500],
+      "uv_tile_mm_nominal_119": [119, 476],
+      "notes": "Тёмный орех с крупным контрастным рисунком. Мелкие белые крапины краски в исходнике вычищены."
+    }
+  ],
+  "extras": {
+    "contact_sheet": "contact_sheet.png",
+    "readme": "README_panels.md"
+  },
+  "notes": [
+    "uv_tile_mm задаёт размер одного повтора текстуры на поверхности. Он рассчитан так, чтобы ширина одной рейки была ≈ 39.7 мм на всех декорах.",
+    "Если масштаб реек не важен, все четыре файла можно мапить одинаково: 119 × 476 мм (по паспорту панели 2700 × 119 мм, 3 рейки).",
+    "Число реек в тайле (slats_per_tile) — измеренное приблизительно (±5%).",
+    "Текстуры получены из каталожных фотографий: освещение выровнено, но абсолютной фотометрической точности нет."
+  ]
+}

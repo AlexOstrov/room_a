@@ -1,0 +1,331 @@
+  /* =====================================================================
+     Штора и карниз у правой стены
+     ===================================================================== */
+  var curtainGroup;
+
+  function buildCurtain() {
+    curtainGroup = new THREE.Group();
+    curtainGroup.name = 'curtain';
+
+    /* Полотно собрано из сегментов: вертикальные складки дают мягкие
+       светотеневые полосы при любом положении камеры. */
+    var w = 0.78, h = 2.64, seg = 48;
+    var geo = new THREE.PlaneGeometry(w, h, seg, 1);
+    var pos = geo.attributes.position;
+    for (var i = 0; i < pos.count; i++) {
+      var x = pos.getX(i);
+      var t = x / w;                                  /* -0.5 … 0.5 */
+      var fold = 0.030 * Math.cos(t * Math.PI * 5.2) +
+                 0.012 * Math.cos(t * Math.PI * 11.0);
+      pos.setZ(i, fold);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+
+    var mesh = new THREE.Mesh(geo, M.curtain);
+    mesh.rotation.y = -Math.PI / 2;
+    mesh.position.set(WALL.W / 2 - 0.035, 1.34, 1.37);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = 'curtain-mesh';
+    curtainGroup.add(mesh);
+
+    /* металлический карниз и две опоры */
+    var rod = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.88, 12), M.metal);
+    rod.rotation.x = Math.PI / 2;
+    rod.position.set(WALL.W / 2 - 0.06, 2.665, 1.37);
+    rod.castShadow = true;
+    curtainGroup.add(rod);
+    [1.01, 1.73].forEach(function (z) {
+      var bracket = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.025, 0.022), M.metal);
+      bracket.position.set(WALL.W / 2 - 0.032, 2.665, z);
+      bracket.castShadow = true;
+      curtainGroup.add(bracket);
+    });
+
+    room.add(curtainGroup);
+  }
+
+  /* =====================================================================
+     МДФ-панели
+     Моdel с общей мировой UV-развёрткой: рисунок реек продолжается
+     через стыки отдельных прямоугольников, поэтому швы не видны.
+     ===================================================================== */
+  var cornerGroup;
+
+  function applyPanelUV(geo, axis, cx, cy, cz, tileW, tileH) {
+    var p = geo.attributes.position;
+    var n = geo.attributes.normal;
+    var uv = geo.attributes.uv;
+    for (var i = 0; i < p.count; i++) {
+      if (axis === 'z' && n.getZ(i) > 0.5) {
+        uv.setXY(i, (cx + p.getX(i)) / tileW, (cy + p.getY(i)) / tileH);
+      } else if (axis === 'x' && n.getX(i) < -0.5) {
+        uv.setXY(i,
+          (WALL.W / 2 + cz + p.getZ(i)) / tileW,
+          (cy + p.getY(i)) / tileH);
+      }
+    }
+    uv.needsUpdate = true;
+  }
+
+  function makePanelMesh(geo, axis, x, y, z, mdf, tile) {
+    applyPanelUV(geo, axis, x, y, z, tile.tileW, tile.tileH);
+    var slot = axis === 'z' ? 4 : 1;          /* BoxGeometry: +z = 4, -x = 1 */
+    var mats = [M.edge, M.edge, M.edge, M.edge, M.edge, M.edge];
+    mats[slot] = mdf;
+    var mesh = new THREE.Mesh(geo, mats);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.mdfSlot = slot;
+    panelGroup.add(mesh);
+    return mesh;
+  }
+
+  function emptyGroup(g) {
+    while (g.children.length) {
+      var c = g.children.pop();
+      if (c.geometry) c.geometry.dispose();
+    }
+  }
+
+  function rebuildPanels() {
+    if (!panelGroup) return;
+    emptyGroup(panelGroup);
+    emptyGroup(cornerGroup);
+
+    var tile = Core.decorTile(state.decor);
+    var mdf = mdfMaterials[state.decor];
+    var d = WALL.DEPTH;
+
+    /* передняя плоскость основной стены */
+    Core.panelRects(state).forEach(function (r) {
+      var w = r.x1 - r.x0, h = r.y1 - r.y0;
+      var g = new THREE.BoxGeometry(w, h, d);
+      makePanelMesh(g, 'z', (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, d / 2, mdf, tile);
+    });
+
+    /* продолжение МДФ на правой стене до шторы */
+    cornerGroup.visible = !!state.corner;
+    if (state.corner) {
+      var c = Core.cornerRect();
+      var cw = c.u1 - c.u0, ch = c.y1 - c.y0;
+      var cg = new THREE.BoxGeometry(d, ch, cw);
+      var cm = makePanelMesh(cg, 'x', WALL.W / 2 - d / 2, (c.y0 + c.y1) / 2, (c.u0 + c.u1) / 2, mdf, tile);
+      /* makePanelMesh кладёт в panelGroup — переносим в угловую группу */
+      panelGroup.remove(cm);
+      cornerGroup.add(cm);
+    }
+    dirty = true;
+  }
+
+  function buildPanels() {
+    panelGroup = new THREE.Group();
+    panelGroup.name = 'mdf-panels';
+    cornerGroup = new THREE.Group();
+    cornerGroup.name = 'mdf-corner';
+    scene.add(panelGroup);
+    scene.add(cornerGroup);
+  }
+
+  /* =====================================================================
+     LED-подсветка
+     Трубки — emissive-цилиндры, вокруг них — мягкие аддитивные полосы.
+     ===================================================================== */
+  var ledFrames = {};
+  var ledMat, glowMatH, glowMatV, ledTubeGeo, ledGlowGeo;
+
+  function makeGlowStrip(horizontal) {
+    var c = cv(horizontal ? 256 : 64, horizontal ? 64 : 256);
+    var g = c.getContext('2d');
+    var grad = horizontal
+      ? g.createLinearGradient(0, 0, 0, c.height)
+      : g.createLinearGradient(0, 0, c.width, 0);
+    grad.addColorStop(0.00, 'rgba(255,255,255,0)');
+    grad.addColorStop(0.34, 'rgba(255,255,255,0.26)');
+    grad.addColorStop(0.50, 'rgba(255,255,255,0.82)');
+    grad.addColorStop(0.66, 'rgba(255,255,255,0.26)');
+    grad.addColorStop(1.00, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, c.width, c.height);
+    var t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    return t;
+  }
+
+  function createLedFrame(name, power) {
+    var group = new THREE.Group();
+    group.name = 'led-' + name;
+
+    var bars = [];
+    for (var i = 0; i < 4; i++) {
+      var bar = new THREE.Mesh(ledTubeGeo, ledMat);
+      groups_add_bar(group, bar, i);
+      bars.push(bar);
+    }
+
+    var glowTop = new THREE.Mesh(ledGlowGeo, glowMatH);
+    var glowBottom = new THREE.Mesh(ledGlowGeo, glowMatH);
+    var glowLeft = new THREE.Mesh(ledGlowGeo, glowMatV);
+    var glowRight = new THREE.Mesh(ledGlowGeo, glowMatV);
+    [glowTop, glowBottom, glowLeft, glowRight].forEach(function (m) {
+      m.renderOrder = 4;
+      group.add(m);
+    });
+
+    var light = new THREE.PointLight(0xffffff, 0, 1.8, 2);
+    group.add(light);
+
+    var frame = {
+      group: group, bars: bars, light: light, power: power,
+      glowTop: glowTop, glowBottom: glowBottom, glowLeft: glowLeft, glowRight: glowRight
+    };
+    ledGroup.add(group);
+    return frame;
+  }
+
+  /* вспомогательная функция вынесена отдельно, чтобы код бара был короче */
+  function groups_add_bar(group, bar, i) {
+    if (i < 2) bar.rotation.z = Math.PI / 2;
+    group.add(bar);
+  }
+
+  function placeLedFrame(frame, rect, on) {
+    if (!rect || !on) {
+      frame.group.visible = false;
+      frame.light.intensity = 0;
+      return;
+    }
+    frame.group.visible = true;
+    var w = rect.x1 - rect.x0;
+    var h = rect.y1 - rect.y0;
+    var cx = (rect.x0 + rect.x1) / 2;
+    var cy = (rect.y0 + rect.y1) / 2;
+    var z = rect.z;
+
+    frame.bars[0].position.set(cx, rect.y1, z);
+    frame.bars[0].scale.set(1, w, 1);
+    frame.bars[1].position.set(cx, rect.y0, z);
+    frame.bars[1].scale.set(1, w, 1);
+    frame.bars[2].position.set(rect.x0, cy, z);
+    frame.bars[2].scale.set(1, h, 1);
+    frame.bars[3].position.set(rect.x1, cy, z);
+    frame.bars[3].scale.set(1, h, 1);
+
+    frame.glowTop.position.set(cx, rect.y1, z - 0.0015);
+    frame.glowTop.scale.set(w + 0.12, 0.095, 1);
+    frame.glowBottom.position.set(cx, rect.y0, z - 0.0015);
+    frame.glowBottom.scale.set(w + 0.12, 0.095, 1);
+    frame.glowLeft.position.set(rect.x0, cy, z - 0.0015);
+    frame.glowLeft.scale.set(0.095, h + 0.12, 1);
+    frame.glowRight.position.set(rect.x1, cy, z - 0.0015);
+    frame.glowRight.scale.set(0.095, h + 0.12, 1);
+
+    frame.light.position.set(cx, cy, z + 0.14);
+    frame.light.intensity = frame.power;
+  }
+
+  function buildLeds() {
+    ledGroup = new THREE.Group();
+    ledGroup.name = 'led-frames';
+
+    ledMat = new THREE.MeshStandardMaterial({
+      color: 0x171717, emissive: 0xffffff, emissiveIntensity: 2.1,
+      roughness: 0.30, metalness: 0.12
+    });
+
+    glowMatH = new THREE.MeshBasicMaterial({
+      map: makeGlowStrip(true), color: 0xffffff, transparent: true,
+      opacity: 0.26, blending: THREE.AdditiveBlending,
+      depthWrite: false, toneMapped: false, side: THREE.DoubleSide
+    });
+    glowMatV = new THREE.MeshBasicMaterial({
+      map: makeGlowStrip(false), color: 0xffffff, transparent: true,
+      opacity: 0.26, blending: THREE.AdditiveBlending,
+      depthWrite: false, toneMapped: false, side: THREE.DoubleSide
+    });
+
+    ledTubeGeo = new THREE.CylinderGeometry(0.0036, 0.0036, 1, 10);
+    ledGlowGeo = new THREE.PlaneGeometry(1, 1);
+
+    ledFrames.picture = createLedFrame('picture', 0.055);
+    ledFrames.wall = createLedFrame('wall', 0.035);
+    ledFrames.peg = createLedFrame('peg', 0.075);
+
+    scene.add(ledGroup);
+  }
+
+  function updateLeds() {
+    var r = Core.ledRects(state);
+    placeLedFrame(ledFrames.picture, r.picture, !!r.picture && state.led.picture);
+    placeLedFrame(ledFrames.wall, r.wall, state.led.wall);
+    placeLedFrame(ledFrames.peg, r.peg, state.peg !== 0 && state.led.peg);
+  }
+
+  function tintLeds(hex) {
+    ledMat.emissive.setHex(hex);
+    glowMatH.color.setHex(hex);
+    glowMatV.color.setHex(hex);
+    Object.keys(ledFrames).forEach(function (k) {
+      ledFrames[k].light.color.setHex(hex);
+    });
+  }
+
+  /* =====================================================================
+     Свет в комнате
+     ===================================================================== */
+  var lightRig = {};
+
+  function buildLights() {
+    var hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.5);
+    scene.add(hemi);
+
+    var key = new THREE.DirectionalLight(0xffffff, 1.35);
+    key.position.set(1.85, 4.2, 3.35);
+    key.target.position.set(0.2, 1.2, 0.1);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.left = -3.5;
+    key.shadow.camera.right = 3.5;
+    key.shadow.camera.top = 3.6;
+    key.shadow.camera.bottom = -1.2;
+    key.shadow.camera.near = 0.5;
+    key.shadow.camera.far = 13;
+    key.shadow.bias = -0.00035;
+    key.shadow.normalBias = 0.018;
+    scene.add(key);
+    scene.add(key.target);
+
+    var fill = new THREE.DirectionalLight(0xffffff, 0.28);
+    fill.position.set(-2.5, 2.6, 3.15);
+    fill.target.position.set(0.2, 1.2, 0);
+    scene.add(fill);
+    scene.add(fill.target);
+
+    /* Мягкий боковой свет для правой стены и шторы: основной ключевой
+       свет падает на них почти по касательной, и складки ткани терялись. */
+    var side = new THREE.DirectionalLight(0xffffff, 0.65);
+    side.position.set(0.9, 1.9, 3.2);
+    side.target.position.set(WALL.W / 2, 1.25, 1.37);
+    scene.add(side);
+    scene.add(side.target);
+
+    lightRig = { hemi: hemi, key: key, fill: fill, side: side };
+  }
+
+  function applyLighting() {
+    var l = LIGHTS[state.light];
+    lightRig.hemi.color.setHex(l.sky);
+    lightRig.hemi.groundColor.setHex(l.ground);
+    lightRig.hemi.intensity = l.hemi;
+    lightRig.key.color.setHex(l.key);
+    lightRig.key.intensity = l.keyPow;
+    lightRig.fill.color.setHex(l.fill);
+    lightRig.fill.intensity = l.fillPow;
+    lightRig.side.color.setHex(l.fill);
+    lightRig.side.intensity = l.sidePow;
+    renderer.toneMappingExposure = l.exposure;
+    tintLeds(l.led);
+    dirty = true;
+  }

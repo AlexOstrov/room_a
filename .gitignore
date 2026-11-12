@@ -1,0 +1,8 @@
+# Disposable analysis output and test screenshots
+_work/
+
+# Python / OS noise
+__pycache__/
+*.pyc
+Thumbs.db
+.DS_Store

@@ -1,0 +1,301 @@
+  /* =====================================================================
+     UI ↔ состояние
+     ===================================================================== */
+  var uiSyncing = false;
+  var homePos = null, homeTarget = null;
+  var runtimeErrors = [];
+
+  function checkedRadio(name) {
+    return document.querySelector('input[name="' + name + '"]:checked');
+  }
+
+  function syncUI() {
+    if (!el.decor) return;
+    uiSyncing = true;
+    var s = Core.summary(state);
+
+    el.decor.value = String(state.decor);
+    el.swatch.style.background = s.swatch;
+    el.decorinfo.textContent =
+      s.name + ' · ' + s.slats.toFixed(2).replace('.', ',') +
+      ' рейки / тайл · ' + s.tileWmm + '×' + s.tileHmm + ' мм';
+
+    var modeEl = checkedRadio('mode');
+    if (modeEl) modeEl.checked = false;
+    var wantedMode = document.querySelector('input[name="mode"][value="' + state.mode + '"]');
+    if (wantedMode) wantedMode.checked = true;
+
+    ['light', 'peg'].forEach(function (name) {
+      var input = document.querySelector('input[name="' + name + '"][value="' + state[name] + '"]');
+      if (input) input.checked = true;
+    });
+
+    el.ai.checked = state.ai;
+    el.masterRow.classList.toggle('on', state.ai);
+    var hint = el.masterRow.querySelector('.mhint');
+    hint.textContent = state.ai
+      ? 'Орех + максимум пегборда + нейтральный LED'
+      : 'Готовая эргономичная конфигурация';
+
+    el.corner.checked = state.corner;
+    el.ledPic.checked = state.led.picture;
+    el.ledWall.checked = state.led.wall;
+    el.ledPeg.checked = state.led.peg;
+
+    el.ledPic.disabled = !s.ledPictureAvailable;
+    el.ledPeg.disabled = !s.ledPegAvailable;
+    document.getElementById('ledPicHint').textContent = s.ledPictureAvailable
+      ? 'по краю панелей вокруг полотна'
+      : (state.peg === 3 ? 'недоступно для «Максимум»: картина скрыта'
+                         : 'недоступно в режиме «Вся стена»');
+    document.getElementById('ledPegHint').textContent = s.ledPegAvailable
+      ? 'контур рабочей зоны над столом'
+      : 'сначала включите пегборд';
+
+    uiSyncing = false;
+  }
+
+  function readUI() {
+    var mode = checkedRadio('mode');
+    var light = checkedRadio('light');
+    var peg = checkedRadio('peg');
+    return {
+      decor: Number(el.decor.value),
+      mode: mode ? mode.value : state.mode,
+      light: light ? Number(light.value) : state.light,
+      peg: peg ? Number(peg.value) : state.peg,
+      corner: el.corner.checked,
+      ai: el.ai.checked,
+      led: {
+        picture: el.ledPic.checked,
+        wall: el.ledWall.checked,
+        peg: el.ledPeg.checked
+      }
+    };
+  }
+
+  function onUserChange() {
+    if (!ready || uiSyncing) return;
+    /* Любое ручное изменение выключает AI-пресет, но не откатывает
+       только что выбранный пользователем параметр. */
+    if (state.ai) {
+      state.ai = false;
+      preAI = null;
+      el.ai.checked = false;
+    }
+    state = Core.sanitize(readUI());
+    applyState();
+  }
+
+  function bindUI() {
+    [el.decor, el.corner, el.ledPic, el.ledWall, el.ledPeg].forEach(function (node) {
+      node.addEventListener('change', onUserChange);
+    });
+    document.querySelectorAll('input[name="mode"], input[name="light"], input[name="peg"]')
+      .forEach(function (node) { node.addEventListener('change', onUserChange); });
+
+    el.ai.addEventListener('change', function () {
+      if (!ready || uiSyncing) return;
+      if (el.ai.checked) {
+        preAI = Core.clone(state);
+        state = Core.presetState();
+      } else if (preAI) {
+        var restored = Core.clone(preAI);
+        restored.ai = false;
+        state = Core.sanitize(restored);
+        preAI = null;
+      } else {
+        state.ai = false;
+        state = Core.sanitize(state);
+      }
+      applyState();
+    });
+
+    el.collapse.addEventListener('click', function () {
+      var collapsed = el.panel.classList.toggle('collapsed');
+      el.collapse.textContent = collapsed ? '›' : '‹';
+      el.collapse.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    });
+
+    el.reset.addEventListener('click', resetView);
+    window.addEventListener('resize', resizeView);
+  }
+
+  function resetView() {
+    if (!homePos) return;
+    camera.position.copy(homePos);
+    controls.target.copy(homeTarget);
+    controls.update();
+    dirty = true;
+  }
+
+  /* =====================================================================
+     Применение состояния к сцене
+     ===================================================================== */
+  function applyState() {
+    state = Core.sanitize(state);
+    if (!ready) return;
+
+    /* Картина видна только в режиме B и только без «Максимума»:
+       максимальная доска занимает всю ширину рабочей зоны. */
+    pictureGroup.visible = Core.pictureVisible(state);
+
+    rebuildPanels();
+    updatePegboard();
+    applyLighting();
+    updateLeds();
+    syncUI();
+    dirty = true;
+  }
+
+  /* =====================================================================
+     Размеры, рендер-цикл, загрузка
+     ===================================================================== */
+  var rafId = 0;
+
+  function resizeView() {
+    if (!renderer) return;
+    var w = window.innerWidth, h = window.innerHeight;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    dirty = true;
+  }
+
+  function loop() {
+    rafId = requestAnimationFrame(loop);
+    var changed = controls.update();
+    if (dirty || changed) {
+      renderer.render(scene, camera);
+      dirty = false;
+    }
+  }
+
+  function startLoop() {
+    if (rafId) cancelAnimationFrame(rafId);
+    dirty = true;
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function hideOverlay() {
+    el.overlay.classList.add('hide');
+    document.body.setAttribute('data-state', 'ready');
+  }
+
+  function stateFromQuery() {
+    try {
+      var m = /[?&]s=([^&]*)/.exec(location.search);
+      if (m) return Core.sanitize(JSON.parse(decodeURIComponent(m[1])));
+    } catch (e) {
+      console.warn('Некорректный параметр s:', e);
+    }
+    return Core.defaults();
+  }
+
+  function loadAssets() {
+    if (typeof ASSETS === 'undefined') {
+      throw new Error('ASSETS не встроены в файл');
+    }
+    if (!ASSETS.picture || !ASSETS.pegboard || !ASSETS.decor || ASSETS.decor.length !== 4) {
+      throw new Error('В ASSETS отсутствуют обязательные текстуры');
+    }
+    var src = [ASSETS.picture, ASSETS.pegboard].concat(ASSETS.decor);
+    return Promise.all(src.map(loadImage)).then(function (imgs) {
+      M.pictureImage = imgs[0];
+      M.pegImage = imgs[1];
+      M.decorImages = imgs.slice(2);
+    });
+  }
+
+  function exposeTestHooks() {
+    window.__room = {
+      ready: function () { return ready; },
+      state: function () { return Core.clone(state); },
+      summary: function () { return Core.summary(state); },
+      visibility: function () {
+        return {
+          picture: pictureGroup.visible,
+          pegboard: pegGroup.visible,
+          pegMax: pegMaxDecor.visible,
+          pegRect: Core.pegRect(state),
+          corner: cornerGroup.visible,
+          panels: panelGroup.children.length,
+          led: {
+            picture: ledFrames.picture.group.visible,
+            wall: ledFrames.wall.group.visible,
+            peg: ledFrames.peg.group.visible
+          }
+        };
+      },
+      setState: function (next) {
+        state = Core.sanitize(next);
+        if (state.ai) preAI = null;
+        applyState();
+        return Core.clone(state);
+      },
+      resetView: resetView,
+      apply: applyState,
+      render: function () { renderer.render(scene, camera); return true; },
+      errors: function () { return runtimeErrors.slice(); },
+      scene: scene,
+      camera: camera,
+      renderer: renderer,
+      Core: Core
+    };
+  }
+
+  function boot() {
+    try {
+      initRenderer();
+      state = stateFromQuery();
+      homePos = camera.position.clone();
+      homeTarget = controls.target.clone();
+    } catch (e) {
+      fail('Не удалось инициализировать 3D', String(e.message || e));
+      console.error(e);
+      return;
+    }
+
+    el.otext.textContent = 'Декодируем встроенные текстуры…';
+    loadAssets().then(function () {
+      el.otext.textContent = 'Строим материалы и геометрию…';
+      buildMaterials();
+      buildRoom();
+      buildCurtain();
+      buildDesk();
+      buildPicture();
+      buildPegboard();
+      buildPanels();
+      buildLeds();
+      buildLights();
+      bindUI();
+
+      ready = true;
+      applyState();
+      resizeView();
+      exposeTestHooks();
+      startLoop();
+
+      /* даём первому кадру отрисоваться до плавного скрытия заставки */
+      setTimeout(hideOverlay, 180);
+    }).catch(function (e) {
+      fail('Не удалось загрузить сцену', String(e.message || e));
+      console.error(e);
+    });
+  }
+
+  window.addEventListener('error', function (e) {
+    if (!ready) return;
+    runtimeErrors.push(String(e.message || e.error || 'error'));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    if (!ready) return;
+    runtimeErrors.push(String(e.reason || 'unhandled rejection'));
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
