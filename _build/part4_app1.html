@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  var WALL = Core.WALL, PICT = Core.PICT, PEG = Core.PEG, MON = Core.MON, DESK = Core.DESK;
+  var WALL = Core.WALL, PICT = Core.PICT, PEG = Core.PEG, MON = Core.MON, DESK = Core.DESK, NIGHT = Core.NIGHT;
   var DECORS = Core.DECORS, LIGHTS = Core.LIGHTS;
 
   /* ---------- состояние ---------- */
@@ -235,9 +235,9 @@
     return t;
   }
 
-  /* --- максимальный пегборд 4×3: 12 квадратных панелей --- */
+  /* --- максимальный пегборд 4×3: 12 ячеек 30 × 42 см --- */
   function makePegboardMax() {
-    var W = 1600, H = 1200, c = cv(W, H), g = c.getContext('2d');
+    var W = 1600, H = 1680, c = cv(W, H), g = c.getContext('2d');
     var r = rnd(77);
     var pw = W / 4, ph = H / 3;
 
@@ -272,7 +272,7 @@
     }
 
     /* сетка отверстий: вертикальные щели, как у каталожного пегборда */
-    var cols = 26, rows = 18;
+    var cols = 24, rows = 18;
     var gapX = W / cols, gapY = H / rows;
     var sw = Math.max(7, Math.round(gapX * 0.16));
     var sh = Math.max(22, Math.round(gapY * 0.50));

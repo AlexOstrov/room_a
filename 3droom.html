@@ -341,6 +341,7 @@
         <label class="pill"><input type="radio" name="peg" value="2">По центру</label>
         <label class="pill"><input type="radio" name="peg" value="3">Максимум</label>
       </div>
+      <div class="secnote">Ячейка 1×1 — 30 × 42 см. «Над столом» и «По центру» — 3×1 (90 × 42 см), «Максимум» — 4×3 (120 × 126 см).</div>
     </section>
 
     <section class="sec">
@@ -382,9 +383,9 @@
 var Core = (function () {
   'use strict';
 
-  /* ---------- габариты сцены ---------- */
-  var WALL  = { W: 4.4, H: 2.75, DEPTH: 0.016, EDGE: 0.03, PANEL_Y0: 0.06, PANEL_Y1: 2.605 };
-  var PICT  = { w: 2.30, h: 1.25, cx: 0, cy: 1.55, frame: 0.018 };
+  /* ---------- габариты сцены (реальные размеры) ---------- */
+  var WALL  = { W: 4.90, H: 2.70, DEPTH: 0.016, EDGE: 0.03, PANEL_Y0: 0.06, PANEL_Y1: 2.555 };
+  var PICT  = { w: 2.70, h: 1.60, cx: 0, cy: 1.35, frame: 0.018 };
   /* Световое панно из дерева: ставится по центру стены вместо картины.
      0 — нет, 1 — четыре квадрата, 2 — горный рельеф, 3 — карта России. */
   var PANNO = {
@@ -399,12 +400,17 @@ var Core = (function () {
       { w: 1.52, h: 0.7242 }
     ]
   };
-  /* пропорции исходного фото пегборда 640 × 445; максимальная доска — 4×3 */
-  var PEG   = { w: 0.92, h: 0.92 * 445 / 640, gap: 0.02, gapAboveMonitor: 0.11,
-                top: 2.61, margin: 0.04, edgePad: 0.028, clear: 0.018,
-                maxAspect: 4 / 3 };
-  var MON   = { cx: 1.63, top: 1.31 };
-  var DESK  = { x0: 0.55, x1: 2.02, depth: 0.62, top: 0.745 };
+  /* Пегборд собран из ячеек 30 × 42 см.
+     «Над столом» и «Слева» — 3×1 (90 × 42 см), «Максимум» — 4×3 (120 × 126 см). */
+  var PEG   = { cell: { w: 0.30, h: 0.42 },
+                cols: 3, rows: 1, maxCols: 4, maxRows: 3,
+                w: 0.90, h: 0.42, maxW: 1.20, maxH: 1.26,
+                gapAboveMonitor: 0.05, top: WALL.H - 0.04,
+                margin: 0.04, edgePad: 0.028, clear: 0.018 };
+  var DESK  = { x0: 1.02, x1: 2.27, depth: 0.62, top: 0.75 };
+  /* тумбочка стоит слева от стола, вплотную к его торцу с зазором */
+  var NIGHT = { w: 0.45, h: 0.54, depth: 0.42, gap: 0.12 };
+  var MON   = { cx: (DESK.x0 + DESK.x1) / 2, top: DESK.top + 0.56 };
   var SLAT  = 0.03967;          /* шаг рейки, 119 мм / 3 */
   var VSTRETCH = 1.5;           /* базовое растяжение текстуры вдоль волокон */
 
@@ -503,43 +509,48 @@ var Core = (function () {
     var p = state.peg | 0;
     if (p === 0) return null;
     var topLimit = PEG.top;
-    var y0, x0, x1, h, w;
+    var y0, x0, x1, h, w, left, right;
 
-    if (p === 1) {                       /* над монитором */
+    if (p === 1) {                       /* над монитором, справа от картины */
       w = PEG.w; h = PEG.h;
-      /* если доска упирается в картину, сдвигаем её вправо: LED-рамка
-         не должна пересекать раму полотна */
-      x0 = Math.max(MON.cx - w / 2,
-                    pictureRect().x1 + PICT.frame + PEG.edgePad + PEG.clear);
+      if (pictureVisible(state)) {
+        /* центрируем доску в свободной полосе между картиной и правой стеной */
+        left = pictureRect().x1 + PICT.frame + PEG.edgePad + PEG.clear;
+        right = WALL.W / 2 - PEG.margin;
+        x0 = (left + right - w) / 2;
+      } else {
+        x0 = MON.cx - w / 2;
+      }
       x1 = x0 + w;
       y0 = MON.top + PEG.gapAboveMonitor;
       if (y0 + h > topLimit) { h = topLimit - y0; }
       return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
     }
-    if (p === 2) {                       /* по центру ширины стены */
+    if (p === 2) {                       /* по центру стены, над картиной */
       w = PEG.w; h = PEG.h;
+      x0 = -w / 2; x1 = w / 2;
       y0 = MON.top + PEG.gapAboveMonitor;
-      if (state.mode === 'B') {
+      if (pictureVisible(state)) {
         /* оставляем место не только доске, но и её LED-рамке */
         y0 = Math.max(y0, pictureRect().y1 + PICT.frame + PEG.edgePad + PEG.clear);
       }
-      if (y0 + h > topLimit) {
-        var k = Math.max(0.45, (topLimit - y0) / h);
-        h = h * k; w = w * k;
-      }
-      x0 = -w / 2; x1 = w / 2;
+      if (y0 + h > topLimit) { h = topLimit - y0; }
       return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
     }
-    /* p === 3 — максимальный 4×3: 4 столбца × 3 ряда квадратов.
-       По требованию дизайнера доска ровно по ширине стола и
-       центрирована над ним; пропорции 4:3, картина при этом скрыта. */
-    x0 = DESK.x0;
-    x1 = DESK.x1;
-    w = x1 - x0;
-    h = w / PEG.maxAspect;
+    /* p === 3 — максимальный 4×3: 12 ячеек 30 × 42 см.
+       Доска центрирована над столом; картина при этом скрыта. */
+    w = PEG.maxW; h = PEG.maxH;
+    x0 = (DESK.x0 + DESK.x1) / 2 - w / 2;
+    x1 = x0 + w;
     y0 = MON.top + PEG.gapAboveMonitor;
     if (y0 + h > topLimit) h = topLimit - y0;
     return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
+  }
+
+  /* Тумбочка слева от стола: габарит 45 × 54 см. */
+  function nightstandRect() {
+    var x1 = DESK.x0 - NIGHT.gap;
+    return { x0: x1 - NIGHT.w, x1: x1, y0: 0, y1: NIGHT.h };
   }
 
   /* Прямоугольники МДФ-панелей.
@@ -640,11 +651,11 @@ var Core = (function () {
   }
 
   return {
-    WALL: WALL, PICT: PICT, PEG: PEG, MON: MON, DESK: DESK, SLAT: SLAT, VSTRETCH: VSTRETCH,
+    WALL: WALL, PICT: PICT, PEG: PEG, MON: MON, DESK: DESK, NIGHT: NIGHT, SLAT: SLAT, VSTRETCH: VSTRETCH,
     DECORS: DECORS, LIGHTS: LIGHTS, AI_PRESET: AI_PRESET, PANNO: PANNO,
     clone: clone, defaults: defaults, sanitize: sanitize, presetState: presetState,
     pictureVisible: pictureVisible, pannoRect: pannoRect,
-    pictureRect: pictureRect, pegRect: pegRect, panelRects: panelRects,
+    pictureRect: pictureRect, pegRect: pegRect, nightstandRect: nightstandRect, panelRects: panelRects,
     cornerRect: cornerRect, ledRects: ledRects, decorTile: decorTile, uvAt: uvAt,
     summary: summary
   };
@@ -675,7 +686,7 @@ var ASSETS = {
 (function () {
   'use strict';
 
-  var WALL = Core.WALL, PICT = Core.PICT, PEG = Core.PEG, MON = Core.MON, DESK = Core.DESK;
+  var WALL = Core.WALL, PICT = Core.PICT, PEG = Core.PEG, MON = Core.MON, DESK = Core.DESK, NIGHT = Core.NIGHT;
   var DECORS = Core.DECORS, LIGHTS = Core.LIGHTS;
 
   /* ---------- состояние ---------- */
@@ -898,9 +909,9 @@ var ASSETS = {
     return t;
   }
 
-  /* --- максимальный пегборд 4×3: 12 квадратных панелей --- */
+  /* --- максимальный пегборд 4×3: 12 ячеек 30 × 42 см --- */
   function makePegboardMax() {
-    var W = 1600, H = 1200, c = cv(W, H), g = c.getContext('2d');
+    var W = 1600, H = 1680, c = cv(W, H), g = c.getContext('2d');
     var r = rnd(77);
     var pw = W / 4, ph = H / 3;
 
@@ -935,7 +946,7 @@ var ASSETS = {
     }
 
     /* сетка отверстий: вертикальные щели, как у каталожного пегборда */
-    var cols = 26, rows = 18;
+    var cols = 24, rows = 18;
     var gapX = W / cols, gapY = H / rows;
     var sw = Math.max(7, Math.round(gapX * 0.16));
     var sh = Math.max(22, Math.round(gapY * 0.50));
@@ -1235,16 +1246,31 @@ var ASSETS = {
         g.add(leg);
       });
 
-    /* тумба с белым ящиком */
-    var unit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.54), M.deskDark);
-    unit.position.set(1.06, 0.28, 0.31); unit.castShadow = true; unit.receiveShadow = true;
+    /* тумбочка слева от стола: 45 см ширина, 54 см высота */
+    var nr = Core.nightstandRect();
+    var ncx = (nr.x0 + nr.x1) / 2;
+    var unit = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w, NIGHT.h, NIGHT.depth), M.deskDark);
+    unit.position.set(ncx, NIGHT.h / 2, NIGHT.depth / 2 + 0.02);
+    unit.castShadow = true; unit.receiveShadow = true;
     g.add(unit);
-    var drawer = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.012), M.white);
-    drawer.position.set(1.06, 0.38, 0.586);
+    var ntop = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w + 0.02, 0.02, NIGHT.depth + 0.02), M.desk);
+    ntop.position.set(ncx, NIGHT.h + 0.01, NIGHT.depth / 2 + 0.02);
+    ntop.castShadow = true; ntop.receiveShadow = true;
+    g.add(ntop);
+    var drawer = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w - 0.05, 0.17, 0.012), M.white);
+    drawer.position.set(ncx, NIGHT.h * 0.74, NIGHT.depth + 0.026);
+    drawer.castShadow = true;
     g.add(drawer);
     var handle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 0.016), M.white);
-    handle.position.set(1.06, 0.38, 0.598);
+    handle.position.set(ncx, NIGHT.h * 0.74, NIGHT.depth + 0.038);
     g.add(handle);
+    var drawer2 = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w - 0.05, 0.21, 0.012), M.desk);
+    drawer2.position.set(ncx, NIGHT.h * 0.34, NIGHT.depth + 0.026);
+    drawer2.castShadow = true;
+    g.add(drawer2);
+    var handle2 = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 0.016), M.white);
+    handle2.position.set(ncx, NIGHT.h * 0.34, NIGHT.depth + 0.038);
+    g.add(handle2);
 
     /* монитор */
     var mBase = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.012, 0.17), M.plastic);
@@ -1262,7 +1288,7 @@ var ASSETS = {
 
     /* ноутбук */
     var lap = new THREE.Group();
-    lap.position.set(1.02, DESK.top, 0.42);
+    lap.position.set(DESK.x0 + 0.17, DESK.top, 0.42);
     var lbase = new THREE.Mesh(new THREE.BoxGeometry(0.325, 0.014, 0.225), M.metal);
     lbase.position.set(0, 0.007, 0);
     lbase.castShadow = true; lbase.receiveShadow = true;
@@ -1283,11 +1309,11 @@ var ASSETS = {
 
     /* клавиатура и мышь */
     var kb = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.012, 0.13), M.plastic);
-    kb.position.set(1.62, DESK.top + 0.006, 0.5); kb.castShadow = true;
+    kb.position.set(MON.cx - 0.035, DESK.top + 0.006, 0.5); kb.castShadow = true;
     g.add(kb);
     var ms = new THREE.Mesh(new THREE.SphereGeometry(0.045, 18, 12), M.plastic);
     ms.scale.set(1.0, 0.55, 1.55);
-    ms.position.set(1.94, DESK.top + 0.018, 0.49); ms.castShadow = true;
+    ms.position.set(MON.cx + 0.33, DESK.top + 0.018, 0.49); ms.castShadow = true;
     g.add(ms);
 
     /* мягкая контактная тень под столом */
@@ -1296,10 +1322,10 @@ var ASSETS = {
     rg.addColorStop(0, 'rgba(0,0,0,0.55)'); rg.addColorStop(0.55, 'rgba(0,0,0,0.22)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
     shG.fillStyle = rg; shG.fillRect(0, 0, 256, 256);
     var shTex = new THREE.CanvasTexture(shC);
-    var sh = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95),
+    var sh = new THREE.Mesh(new THREE.PlaneGeometry(DESK.x1 - DESK.x0 + 0.25, 0.95),
       new THREE.MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false, opacity: 0.75 }));
     sh.rotation.x = -Math.PI / 2;
-    sh.position.set(1.28, 0.004, 0.42);
+    sh.position.set((DESK.x0 + DESK.x1) / 2, 0.004, 0.42);
     g.add(sh);
 
     scene.add(g);
@@ -1310,6 +1336,23 @@ var ASSETS = {
      ===================================================================== */
   function buildPicture() {
     pictureGroup = new THREE.Group();
+
+    /* вписываем исходное изображение в новый габарит 270 × 160 см
+       без растяжения: лишнее аккуратно обрезается по краям */
+    if (M.pictureImage && M.pictureImage.width && M.pictureImage.height) {
+      var ia = M.pictureImage.width / M.pictureImage.height;
+      var fa = PICT.w / PICT.h;
+      if (fa < ia) {
+        var rx = fa / ia;
+        texPic.repeat.set(rx, 1);
+        texPic.offset.set((1 - rx) / 2, 0);
+      } else {
+        var ry = ia / fa;
+        texPic.repeat.set(1, ry);
+        texPic.offset.set(0, (1 - ry) / 2);
+      }
+      texPic.needsUpdate = true;
+    }
 
     var print = new THREE.Mesh(new THREE.PlaneGeometry(PICT.w, PICT.h), M.picture);
     print.position.set(PICT.cx, PICT.cy, 0.006);
@@ -2270,7 +2313,7 @@ var ASSETS = {
         : (state.peg === 3 ? 'недоступно для «Максимум»: картина скрыта'
                            : 'недоступно в режиме «Вся стена»'));
     document.getElementById('ledPegHint').textContent = s.ledPegAvailable
-      ? 'контур рабочей зоны над столом'
+      ? 'контур выбранного пегборда'
       : 'сначала включите пегборд';
 
     uiSyncing = false;

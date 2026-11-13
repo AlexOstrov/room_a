@@ -66,6 +66,35 @@ test("defaults: стартовое состояние соответствует
   assert.strictEqual(s.decor, 1);
 });
 
+test("dimensions: реальные габариты стены и предметов", function () {
+  assert(close(Core.WALL.W, 4.9));
+  assert(close(Core.WALL.H, 2.7));
+  assert(close(Core.PICT.w, 2.7));
+  assert(close(Core.PICT.h, 1.6));
+  assert(close(Core.DESK.x1 - Core.DESK.x0, 1.25));
+  assert(close(Core.DESK.top, 0.75));
+  assert(close(Core.NIGHT.w, 0.45));
+  assert(close(Core.NIGHT.h, 0.54));
+  assert(close(Core.PEG.cell.w, 0.30));
+  assert(close(Core.PEG.cell.h, 0.42));
+
+  var pic = Core.pictureRect();
+  assert(close(pic.x1 - pic.x0, 2.7));
+  assert(close(pic.y1 - pic.y0, 1.6));
+  assert(close((pic.x0 + pic.x1) / 2, 0));
+  assert(inside(pic, { x0: -Core.WALL.W / 2, x1: Core.WALL.W / 2, y0: 0, y1: Core.WALL.H }));
+
+  var desk = Core.DESK;
+  assert(desk.x1 <= Core.WALL.W / 2);
+  assert(desk.x0 >= -Core.WALL.W / 2);
+
+  var n = Core.nightstandRect();
+  assert(close(n.x1 - n.x0, 0.45));
+  assert(close(n.y1 - n.y0, 0.54));
+  assert(n.x1 <= desk.x0, "тумбочка должна стоять слева от стола");
+  assert(close(n.y0, 0));
+});
+
 test("sanitize: значения зажимаются в допустимые диапазоны", function () {
   var s = Core.sanitize({
     decor: 99, mode: "X", peg: 9, panno: 99, light: -4, corner: 1, ai: 1,
@@ -209,48 +238,49 @@ test("geometry: картина и панели режима A/B", function () {
   assert(close(max[0].y1, Core.WALL.PANEL_Y1));
 });
 
-test("pegboard: все четыре варианта в пределах стены", function () {
-  var states = [0, 1, 2, 3];
-  var rects = states.map(function (p) {
-    return Core.pegRect({ peg: p, mode: "B" });
-  });
-  assert.strictEqual(rects[0], null);
-  for (var i = 1; i < rects.length; i++) {
-    var r = rects[i];
-    assert(r.x1 > r.x0 && r.y1 > r.y0);
+test("pegboard: варианты собраны из ячеек 30 × 42 см", function () {
+  var cell = Core.PEG.cell;
+  var v1 = Core.pegRect({ peg: 1, mode: "B" });
+  var v2 = Core.pegRect({ peg: 2, mode: "B" });
+  var v3 = Core.pegRect({ peg: 3, mode: "B" });
+
+  assert.strictEqual(Core.pegRect({ peg: 0, mode: "B" }), null);
+
+  [v1, v2].forEach(function (r) {
+    assert(close(r.x1 - r.x0, 3 * cell.w), "вариант должен быть 3 ячейки по ширине");
+    assert(close(r.y1 - r.y0, cell.h), "вариант должен быть 1 ячейка по высоте");
     assert(inside(r, { x0: -Core.WALL.W / 2, x1: Core.WALL.W / 2, y0: 0, y1: Core.WALL.H }));
-    if (i === 3) {
-      /* максимальная доска 4:3 ровно по ширине стола и над его центром */
-      assert(close((r.x1 - r.x0) / (r.y1 - r.y0), 4 / 3, 1e-9));
-      assert(close(r.x0, Core.DESK.x0));
-      assert(close(r.x1, Core.DESK.x1));
-      assert(close((r.x0 + r.x1) / 2, (Core.DESK.x0 + Core.DESK.x1) / 2));
-      assert(close(r.y0, Core.MON.top + Core.PEG.gapAboveMonitor));
-      assert(close(r.x1 - r.x0, Core.DESK.x1 - Core.DESK.x0));
-    } else {
-      /* варианты 1 и 2 сохраняют пропорции фото 640 × 445 */
-      assert(close((r.x1 - r.x0) / (r.y1 - r.y0), 640 / 445, 1e-6));
-      assert(!overlap(r, Core.pictureRect()), "пегборд не должен закрывать картину в режиме B");
-    }
+    assert(!overlap(r, Core.pictureRect()), "пегборд не должен закрывать картину в режиме B");
+  });
+
+  /* вариант 1 — справа от картины, вариант 2 — по центру над картиной */
+  assert(v1.x0 >= Core.pictureRect().x1 + Core.PICT.frame, "вариант 1 должен быть справа от картины");
+  assert(close((v2.x0 + v2.x1) / 2, 0), "вариант 2 должен быть центрирован по стене");
+  assert(v2.y0 >= Core.pictureRect().y1 + Core.PICT.frame, "вариант 2 должен быть выше картины");
+  assert(v2.y1 <= Core.PEG.top + 1e-9);
+
+  /* без картины вариант 1 центрируется над монитором */
+  var a = Core.pegRect({ mode: "A", peg: 1 });
+  assert(close((a.x0 + a.x1) / 2, Core.MON.cx));
+
+  /* «Максимум»: 4×3 ячейки, по центру стола, картина скрыта */
+  assert(close(v3.x1 - v3.x0, 4 * cell.w));
+  assert(close(v3.y1 - v3.y0, 3 * cell.h));
+  assert(close(v3.x1 - v3.x0, Core.PEG.maxW));
+  assert(close(v3.y1 - v3.y0, Core.PEG.maxH));
+  assert(close((v3.x0 + v3.x1) / 2, (Core.DESK.x0 + Core.DESK.x1) / 2));
+  assert(v3.x1 - v3.x0 <= Core.DESK.x1 - Core.DESK.x0, "доска не шире стола");
+  assert(v3.y0 >= Core.MON.top + Core.PEG.gapAboveMonitor - 1e-9);
+  assert(v3.y1 <= Core.PEG.top + 1e-9);
+  assert(inside(v3, { x0: -Core.WALL.W / 2, x1: Core.WALL.W / 2, y0: 0, y1: Core.WALL.H }));
+
+  /* LED-рамки вариантов 1 и 2 не пересекают раму картины */
+  var pic = Core.pictureRect(), f = Core.PICT.frame;
+  var framed = { x0: pic.x0 - f, x1: pic.x1 + f, y0: pic.y0 - f, y1: pic.y1 + f };
+  for (var p = 1; p <= 2; p++) {
+    var lr = Core.ledRects({ mode: "B", peg: p }).peg;
+    assert(!overlap(lr, framed), "LED-рамка пегборда пересекает картину при peg=" + p);
   }
-
-  /* вариант 1 — над монитором; при нехватке места сдвинут вправо,
-     чтобы LED-рамка не наезжала на раму картины */
-  assert(rects[1].x0 - Core.PEG.edgePad >=
-    Core.pictureRect().x1 + Core.PICT.frame, "LED-рамка не должна пересекать раму картины");
-  assert((rects[1].x0 + rects[1].x1) / 2 >= Core.MON.cx);
-  assert(close((rects[2].x0 + rects[2].x1) / 2, 0), "вариант 2 центрирован по стене");
-  assert(rects[2].y0 - Core.PEG.edgePad >=
-    Core.pictureRect().y1 + Core.PICT.frame, "нижняя LED-рамка не должна наезжать на раму");
-  assert(rects[3].y1 <= Core.PEG.top + 1e-9);
-  assert(rects[3].y0 >= Core.MON.top);
-});
-
-test("pegboard: вариант 2 поднимается над картиной и уменьшается под карниз", function () {
-  var r = Core.pegRect({ peg: 2, mode: "B" });
-  assert(r.y0 >= Core.pictureRect().y1 + Core.PEG.gap - 1e-9);
-  assert(r.y1 <= Core.PEG.top + 1e-9);
-  assert(r.x0 < 0 && r.x1 > 0);
 });
 
 test("LED: рамки соответствуют видимым объектам", function () {

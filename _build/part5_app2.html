@@ -180,16 +180,31 @@
         g.add(leg);
       });
 
-    /* тумба с белым ящиком */
-    var unit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.54), M.deskDark);
-    unit.position.set(1.06, 0.28, 0.31); unit.castShadow = true; unit.receiveShadow = true;
+    /* тумбочка слева от стола: 45 см ширина, 54 см высота */
+    var nr = Core.nightstandRect();
+    var ncx = (nr.x0 + nr.x1) / 2;
+    var unit = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w, NIGHT.h, NIGHT.depth), M.deskDark);
+    unit.position.set(ncx, NIGHT.h / 2, NIGHT.depth / 2 + 0.02);
+    unit.castShadow = true; unit.receiveShadow = true;
     g.add(unit);
-    var drawer = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.012), M.white);
-    drawer.position.set(1.06, 0.38, 0.586);
+    var ntop = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w + 0.02, 0.02, NIGHT.depth + 0.02), M.desk);
+    ntop.position.set(ncx, NIGHT.h + 0.01, NIGHT.depth / 2 + 0.02);
+    ntop.castShadow = true; ntop.receiveShadow = true;
+    g.add(ntop);
+    var drawer = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w - 0.05, 0.17, 0.012), M.white);
+    drawer.position.set(ncx, NIGHT.h * 0.74, NIGHT.depth + 0.026);
+    drawer.castShadow = true;
     g.add(drawer);
     var handle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 0.016), M.white);
-    handle.position.set(1.06, 0.38, 0.598);
+    handle.position.set(ncx, NIGHT.h * 0.74, NIGHT.depth + 0.038);
     g.add(handle);
+    var drawer2 = new THREE.Mesh(new THREE.BoxGeometry(NIGHT.w - 0.05, 0.21, 0.012), M.desk);
+    drawer2.position.set(ncx, NIGHT.h * 0.34, NIGHT.depth + 0.026);
+    drawer2.castShadow = true;
+    g.add(drawer2);
+    var handle2 = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 0.016), M.white);
+    handle2.position.set(ncx, NIGHT.h * 0.34, NIGHT.depth + 0.038);
+    g.add(handle2);
 
     /* монитор */
     var mBase = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.012, 0.17), M.plastic);
@@ -207,7 +222,7 @@
 
     /* ноутбук */
     var lap = new THREE.Group();
-    lap.position.set(1.02, DESK.top, 0.42);
+    lap.position.set(DESK.x0 + 0.17, DESK.top, 0.42);
     var lbase = new THREE.Mesh(new THREE.BoxGeometry(0.325, 0.014, 0.225), M.metal);
     lbase.position.set(0, 0.007, 0);
     lbase.castShadow = true; lbase.receiveShadow = true;
@@ -228,11 +243,11 @@
 
     /* клавиатура и мышь */
     var kb = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.012, 0.13), M.plastic);
-    kb.position.set(1.62, DESK.top + 0.006, 0.5); kb.castShadow = true;
+    kb.position.set(MON.cx - 0.035, DESK.top + 0.006, 0.5); kb.castShadow = true;
     g.add(kb);
     var ms = new THREE.Mesh(new THREE.SphereGeometry(0.045, 18, 12), M.plastic);
     ms.scale.set(1.0, 0.55, 1.55);
-    ms.position.set(1.94, DESK.top + 0.018, 0.49); ms.castShadow = true;
+    ms.position.set(MON.cx + 0.33, DESK.top + 0.018, 0.49); ms.castShadow = true;
     g.add(ms);
 
     /* мягкая контактная тень под столом */
@@ -241,10 +256,10 @@
     rg.addColorStop(0, 'rgba(0,0,0,0.55)'); rg.addColorStop(0.55, 'rgba(0,0,0,0.22)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
     shG.fillStyle = rg; shG.fillRect(0, 0, 256, 256);
     var shTex = new THREE.CanvasTexture(shC);
-    var sh = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95),
+    var sh = new THREE.Mesh(new THREE.PlaneGeometry(DESK.x1 - DESK.x0 + 0.25, 0.95),
       new THREE.MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false, opacity: 0.75 }));
     sh.rotation.x = -Math.PI / 2;
-    sh.position.set(1.28, 0.004, 0.42);
+    sh.position.set((DESK.x0 + DESK.x1) / 2, 0.004, 0.42);
     g.add(sh);
 
     scene.add(g);
@@ -255,6 +270,23 @@
      ===================================================================== */
   function buildPicture() {
     pictureGroup = new THREE.Group();
+
+    /* вписываем исходное изображение в новый габарит 270 × 160 см
+       без растяжения: лишнее аккуратно обрезается по краям */
+    if (M.pictureImage && M.pictureImage.width && M.pictureImage.height) {
+      var ia = M.pictureImage.width / M.pictureImage.height;
+      var fa = PICT.w / PICT.h;
+      if (fa < ia) {
+        var rx = fa / ia;
+        texPic.repeat.set(rx, 1);
+        texPic.offset.set((1 - rx) / 2, 0);
+      } else {
+        var ry = ia / fa;
+        texPic.repeat.set(1, ry);
+        texPic.offset.set(0, (1 - ry) / 2);
+      }
+      texPic.needsUpdate = true;
+    }
 
     var print = new THREE.Mesh(new THREE.PlaneGeometry(PICT.w, PICT.h), M.picture);
     print.position.set(PICT.cx, PICT.cy, 0.006);
