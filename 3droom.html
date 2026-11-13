@@ -341,7 +341,7 @@
         <label class="pill"><input type="radio" name="peg" value="2">По центру</label>
         <label class="pill"><input type="radio" name="peg" value="3">Максимум</label>
       </div>
-      <div class="secnote">Ячейка 1×1 — 30 × 42 см. «Над столом» и «По центру» — 3×1 (90 × 42 см), «Максимум» — 4×3 (120 × 126 см).</div>
+      <div class="secnote">Ячейка 1×1 — 30 × 42 см. «Над столом» и «По центру» — 3×2 (90 × 84 см), «Максимум» — 4×3 (120 × 126 см). «По центру» и «Максимум» скрывают картину.</div>
     </section>
 
     <section class="sec">
@@ -401,10 +401,12 @@ var Core = (function () {
     ]
   };
   /* Пегборд собран из ячеек 30 × 42 см.
-     «Над столом» и «Слева» — 3×1 (90 × 42 см), «Максимум» — 4×3 (120 × 126 см). */
+     «Над столом» и «По центру» — 3×2 (90 × 84 см),
+     «Максимум» — 4×3 (120 × 126 см), опущен на одну ячейку вниз. */
   var PEG   = { cell: { w: 0.30, h: 0.42 },
-                cols: 3, rows: 1, maxCols: 4, maxRows: 3,
-                w: 0.90, h: 0.42, maxW: 1.20, maxH: 1.26,
+                cols: 3, rows: 2, maxCols: 4, maxRows: 3,
+                w: 0.90, h: 0.84, maxW: 1.20, maxH: 1.26,
+                maxDrop: 0.42,
                 gapAboveMonitor: 0.05, top: WALL.H - 0.04,
                 margin: 0.04, edgePad: 0.028, clear: 0.018 };
   var DESK  = { x0: 1.02, x1: 2.27, depth: 0.62, top: 0.75 };
@@ -469,10 +471,10 @@ var Core = (function () {
         peg: !!(s.led && s.led.peg)
       }
     };
-    /* «Максимум» занимает всю ширину рабочей зоны, поэтому картина
-       убирается со стены — LED её контура тоже больше не нужен. */
-    /* Максимальный пегборд и световое панно делят центральную зону стены. */
-    if (out.panno > 0 && out.peg === 3) out.peg = 1;
+    /* «По центру» и «Максимум» занимают центральную зону стены,
+       поэтому картина убирается — LED её контура тоже больше не нужен. */
+    /* Центральные пегборды и световое панно делят одну зону стены. */
+    if (out.panno > 0 && (out.peg === 2 || out.peg === 3)) out.peg = 1;
     if (!pictureVisible(out)) out.led.picture = false;
     /* LED пегборда существует только когда пегборд есть */
     if (out.peg === 0) out.led.peg = false;
@@ -480,9 +482,10 @@ var Core = (function () {
   }
 
   /* Картина видна только в режиме «Вокруг картины» и только пока
-     не выбран максимальный пегборд 4×3. */
+     не выбран центральный пегборд («По центру» или «Максимум»). */
   function pictureVisible(state) {
-    return state.mode === 'B' && (state.peg | 0) !== 3 && (state.panno | 0) === 0;
+    var p = state.peg | 0;
+    return state.mode === 'B' && p !== 2 && p !== 3 && (state.panno | 0) === 0;
   }
 
   /* Прямоугольник светового панно: всегда по центру стены. */
@@ -526,23 +529,20 @@ var Core = (function () {
       if (y0 + h > topLimit) { h = topLimit - y0; }
       return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
     }
-    if (p === 2) {                       /* по центру стены, над картиной */
+    if (p === 2) {                       /* по центру стены; картина скрыта */
       w = PEG.w; h = PEG.h;
       x0 = -w / 2; x1 = w / 2;
       y0 = MON.top + PEG.gapAboveMonitor;
-      if (pictureVisible(state)) {
-        /* оставляем место не только доске, но и её LED-рамке */
-        y0 = Math.max(y0, pictureRect().y1 + PICT.frame + PEG.edgePad + PEG.clear);
-      }
       if (y0 + h > topLimit) { h = topLimit - y0; }
       return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
     }
     /* p === 3 — максимальный 4×3: 12 ячеек 30 × 42 см.
-       Доска центрирована над столом; картина при этом скрыта. */
+       Доска центрирована над столом и опущена на одну ячейку;
+       картина при этом скрыта. */
     w = PEG.maxW; h = PEG.maxH;
     x0 = (DESK.x0 + DESK.x1) / 2 - w / 2;
     x1 = x0 + w;
-    y0 = MON.top + PEG.gapAboveMonitor;
+    y0 = MON.top + PEG.gapAboveMonitor - PEG.maxDrop;
     if (y0 + h > topLimit) h = topLimit - y0;
     return { x0: x0, x1: x1, y0: y0, y1: y0 + h };
   }
@@ -2310,8 +2310,9 @@ var ASSETS = {
     document.getElementById('ledPicHint').textContent = s.ledPictureAvailable
       ? 'по краю панелей вокруг полотна'
       : (state.panno > 0 ? 'недоступно: включено световое панно'
-        : (state.peg === 3 ? 'недоступно для «Максимум»: картина скрыта'
-                           : 'недоступно в режиме «Вся стена»'));
+        : (state.peg === 2 || state.peg === 3
+            ? 'недоступно: выбранный пегборд скрывает картину'
+            : 'недоступно в режиме «Вся стена»'));
     document.getElementById('ledPegHint').textContent = s.ledPegAvailable
       ? 'контур выбранного пегборда'
       : 'сначала включите пегборд';
@@ -2352,9 +2353,9 @@ var ASSETS = {
       el.ai.checked = false;
     }
     var next = readUI();
-    /* «Максимум» и световое панно делят центральную зону стены:
-       последнее действие пользователя выигрывает. */
-    if (next.panno > 0 && next.peg === 3) {
+    /* «По центру»/«Максимум» и световое панно делят центральную зону
+       стены: последнее действие пользователя выигрывает. */
+    if (next.panno > 0 && (next.peg === 2 || next.peg === 3)) {
       if (e && e.target && e.target.name === 'panno') next.peg = 1;
       else next.panno = 0;
     }

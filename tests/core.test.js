@@ -130,14 +130,16 @@ test("sanitize: пегборд 0 гасит LED пегборда", function () {
   assert.strictEqual(s.led.picture, true);
 });
 
-test("sanitize: «Максимум» скрывает картину и гасит её LED", function () {
-  var s = Core.sanitize({ mode: "B", peg: 3, led: { picture: true, wall: true, peg: true } });
-  assert.strictEqual(s.led.picture, false);
-  assert.strictEqual(s.led.wall, true);
-  assert.strictEqual(s.led.peg, true);
-  assert.strictEqual(Core.pictureVisible(s), false);
-  assert.strictEqual(Core.summary(s).pictureVisible, false);
-  assert.strictEqual(Core.summary(s).ledPictureAvailable, false);
+test("sanitize: «По центру» и «Максимум» скрывают картину и гасят её LED", function () {
+  [2, 3].forEach(function (peg) {
+    var s = Core.sanitize({ mode: "B", peg: peg, led: { picture: true, wall: true, peg: true } });
+    assert.strictEqual(s.led.picture, false);
+    assert.strictEqual(s.led.wall, true);
+    assert.strictEqual(s.led.peg, true);
+    assert.strictEqual(Core.pictureVisible(s), false);
+    assert.strictEqual(Core.summary(s).pictureVisible, false);
+    assert.strictEqual(Core.summary(s).ledPictureAvailable, false);
+  });
 
   var back = Core.sanitize({ mode: "B", peg: 1, led: { picture: true, wall: false, peg: false } });
   assert.strictEqual(back.led.picture, true);
@@ -195,14 +197,16 @@ test("panno: все варианты центрированы по стене и
   assert.strictEqual(Core.pannoRect({ panno: 9 }), null);
 });
 
-test("panno: «Максимум» и панно не сосуществуют", function () {
-  var s = Core.sanitize({ mode: "B", peg: 3, panno: 3, led: { picture: true } });
-  assert.strictEqual(s.panno, 3, "панно сохраняется");
-  assert.strictEqual(s.peg, 1, "пегборд откатывается к обычному варианту");
-  assert.strictEqual(s.led.picture, false);
-  assert.strictEqual(Core.pictureVisible(s), false);
-  assert.strictEqual(Core.summary(s).pegVisible, true);
-  assert.strictEqual(Core.summary(s).pannoVisible, true);
+test("panno: центральные пегборды и панно не сосуществуют", function () {
+  [2, 3].forEach(function (peg) {
+    var s = Core.sanitize({ mode: "B", peg: peg, panno: 3, led: { picture: true } });
+    assert.strictEqual(s.panno, 3, "панно сохраняется");
+    assert.strictEqual(s.peg, 1, "пегборд откатывается к обычному варианту");
+    assert.strictEqual(s.led.picture, false);
+    assert.strictEqual(Core.pictureVisible(s), false);
+    assert.strictEqual(Core.summary(s).pegVisible, true);
+    assert.strictEqual(Core.summary(s).pannoVisible, true);
+  });
 });
 
 test("geometry: картина и панели режима A/B", function () {
@@ -245,42 +249,50 @@ test("pegboard: варианты собраны из ячеек 30 × 42 см", 
   var v3 = Core.pegRect({ peg: 3, mode: "B" });
 
   assert.strictEqual(Core.pegRect({ peg: 0, mode: "B" }), null);
+  assert(close(Core.PEG.maxDrop, cell.h), "«Максимум» опускается ровно на одну ячейку");
 
   [v1, v2].forEach(function (r) {
     assert(close(r.x1 - r.x0, 3 * cell.w), "вариант должен быть 3 ячейки по ширине");
-    assert(close(r.y1 - r.y0, cell.h), "вариант должен быть 1 ячейка по высоте");
+    assert(close(r.y1 - r.y0, 2 * cell.h), "вариант должен быть 2 ячейки по высоте");
     assert(inside(r, { x0: -Core.WALL.W / 2, x1: Core.WALL.W / 2, y0: 0, y1: Core.WALL.H }));
-    assert(!overlap(r, Core.pictureRect()), "пегборд не должен закрывать картину в режиме B");
   });
 
-  /* вариант 1 — справа от картины, вариант 2 — по центру над картиной */
+  /* вариант 1 — справа от картины, картина остаётся видимой */
+  assert(Core.pictureVisible({ peg: 1, mode: "B" }), "вариант 1 не должен скрывать картину");
+  assert(!overlap(v1, Core.pictureRect()), "вариант 1 не должен закрывать картину в режиме B");
   assert(v1.x0 >= Core.pictureRect().x1 + Core.PICT.frame, "вариант 1 должен быть справа от картины");
+
+  /* вариант 2 — по центру стены; 3×2 не помещается над картиной,
+     поэтому картина скрывается */
+  assert.strictEqual(Core.pictureVisible({ peg: 2, mode: "B" }), false);
   assert(close((v2.x0 + v2.x1) / 2, 0), "вариант 2 должен быть центрирован по стене");
-  assert(v2.y0 >= Core.pictureRect().y1 + Core.PICT.frame, "вариант 2 должен быть выше картины");
+  assert(v2.y0 >= Core.MON.top + Core.PEG.gapAboveMonitor - 1e-9);
   assert(v2.y1 <= Core.PEG.top + 1e-9);
 
   /* без картины вариант 1 центрируется над монитором */
   var a = Core.pegRect({ mode: "A", peg: 1 });
   assert(close((a.x0 + a.x1) / 2, Core.MON.cx));
 
-  /* «Максимум»: 4×3 ячейки, по центру стола, картина скрыта */
+  /* «Максимум»: 4×3 ячейки, по центру стола, опущен на одну ячейку */
   assert(close(v3.x1 - v3.x0, 4 * cell.w));
   assert(close(v3.y1 - v3.y0, 3 * cell.h));
   assert(close(v3.x1 - v3.x0, Core.PEG.maxW));
   assert(close(v3.y1 - v3.y0, Core.PEG.maxH));
   assert(close((v3.x0 + v3.x1) / 2, (Core.DESK.x0 + Core.DESK.x1) / 2));
   assert(v3.x1 - v3.x0 <= Core.DESK.x1 - Core.DESK.x0, "доска не шире стола");
-  assert(v3.y0 >= Core.MON.top + Core.PEG.gapAboveMonitor - 1e-9);
+  assert(close(v3.y0, Core.MON.top + Core.PEG.gapAboveMonitor - cell.h),
+    "«Максимум» должен быть опущен на одну ячейку");
+  assert(close(v3.y1, v2.y1), "верх «Максимума» совпадает с верхом 3×2");
   assert(v3.y1 <= Core.PEG.top + 1e-9);
   assert(inside(v3, { x0: -Core.WALL.W / 2, x1: Core.WALL.W / 2, y0: 0, y1: Core.WALL.H }));
 
-  /* LED-рамки вариантов 1 и 2 не пересекают раму картины */
+  /* LED-рамка варианта 1 не пересекает раму картины */
   var pic = Core.pictureRect(), f = Core.PICT.frame;
   var framed = { x0: pic.x0 - f, x1: pic.x1 + f, y0: pic.y0 - f, y1: pic.y1 + f };
-  for (var p = 1; p <= 2; p++) {
-    var lr = Core.ledRects({ mode: "B", peg: p }).peg;
-    assert(!overlap(lr, framed), "LED-рамка пегборда пересекает картину при peg=" + p);
-  }
+  var lr = Core.ledRects({ mode: "B", peg: 1 }).peg;
+  assert(!overlap(lr, framed), "LED-рамка пегборда пересекает картину при peg=1");
+  assert.strictEqual(Core.ledRects({ mode: "B", peg: 2 }).picture, undefined,
+    "у «По центру» картина скрыта — LED картины не нужен");
 });
 
 test("LED: рамки соответствуют видимым объектам", function () {
@@ -300,13 +312,15 @@ test("LED: рамки соответствуют видимым объектам
   assert(c.picture === undefined, "у «Максимума» картина скрыта — LED картины не нужен");
   assert(inside(c.peg, { x0: -Core.WALL.W / 2, x1: Core.WALL.W / 2, y0: 0, y1: Core.WALL.H }));
 
-  /* варианты 1 и 2: LED-рамка пегборда не пересекает раму картины */
+  var c2 = Core.ledRects({ mode: "B", peg: 2 });
+  assert(c2.peg);
+  assert(c2.picture === undefined, "у «По центру» картина скрыта — LED картины не нужен");
+
+  /* вариант 1: LED-рамка пегборда не пересекает раму картины */
   var framed = Core.pictureRect(), f = Core.PICT.frame;
   framed = { x0: framed.x0 - f, x1: framed.x1 + f, y0: framed.y0 - f, y1: framed.y1 + f };
-  for (var p = 1; p <= 2; p++) {
-    var lr = Core.ledRects({ mode: "B", peg: p }).peg;
-    assert(!overlap(lr, framed), "LED-рамка пегборда пересекает картину при peg=" + p);
-  }
+  var lr = Core.ledRects({ mode: "B", peg: 1 }).peg;
+  assert(!overlap(lr, framed), "LED-рамка пегборда пересекает картину при peg=1");
 });
 
 test("UV: повтор текстуры непрерывен на границах областей", function () {

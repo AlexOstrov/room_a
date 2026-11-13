@@ -14,9 +14,9 @@
   - coverage A hides the picture and forces the picture LED off;
   - pegboard `0` forces the pegboard LED off;
   - coverage B uses four non-overlapping panel regions around the picture.
-  - the “Максимум” pegboard is 4 columns × 3 rows of 30 × 42 cm cells (120 × 126 cm), centered over the desk, and forces the picture and its LED off. The smaller variants are 3 × 1 cells (90 × 42 cm): “Над столом” sits right of the picture above the monitor, “По центру” sits above the picture; both keep their LED frames clear of the picture frame.
+  - the “Максимум” pegboard is 4 columns × 3 rows of 30 × 42 cm cells (120 × 126 cm), centered over the desk, shifted down one cell (42 cm), and forces the picture and its LED off. The smaller variants are 3 × 2 cells (90 × 84 cm): “Над столом” sits right of the picture above the monitor and keeps its LED frame clear of the picture frame; “По центру” is centered on the wall and hides the picture, because a 90 × 84 cm board does not fit above the 160 cm picture.
   - the “Световое панно” variants (4 squares, mountains, Russia map) replace the picture, are centered on the wall, force the picture LED off, and remove the picture cutout from the MDF panels; the “4 квадрата” variant is 38.5 × 38.5 cm overall (four 18 cm tiles with a 2.5 cm central gap), not 38.5 cm per tile;
-  - “Максимум” and a panno cannot both occupy the central zone: `sanitize` keeps the panno and falls the pegboard back to variant 1. The UI resolves the conflict by the latest user action.
+  - “По центру”/“Максимум” and a panno cannot both occupy the central zone: `sanitize` keeps the panno and falls the pegboard back to variant 1. The UI resolves the conflict by the latest user action.
 - MDF textures use world-coordinate UVs (`Core.uvAt`) with per-decor tile widths from the manifest. Do not switch to per-mesh 0…1 UVs; the slat pattern will jump at panel seams. The source tiles are not seamless along V, so `Core.decorTile` stretches the vertical repeat to at least the wall height; shrinking it back causes visible horizontal bands.
 - Preserve the state flow: UI → `sanitize` → one scene update path, and restore the pre-AI snapshot when the AI preset is switched off.
 - `_work/` is disposable analysis output and is not a source of truth. `panels/*.png` and the root reference/catalog images are sources, not runtime files.
@@ -28,8 +28,8 @@
 ## Verification
 - Build: `python build.py` (regenerates the board-only pegboard crop, downscales textures, inserts `panno_rings.json`, writes `3droom.html`). The map PNG and rings come from `python _work/panno_gen.py`.
 - Unit tests: `node tests/core.test.js` extracts/evaluates the marked CORE block and checks state and geometry invariants (17 tests).
-- Browser test: `node _work/visual/run.js` uses Chrome at 2560×1600 via `file://` and `puppeteer-core` from `C:\Users\ostrov\AppData\Local\Temp\opencode\room_a_visual\node_modules`; headless WebGL needs `--enable-unsafe-swiftshader`. It checks every LED, light preset, decor, peg placement (including the 4×3-cell “Максимум”), all three panno variants, panno/“Максимум” conflict resolution, panno AI restore, corner toggle, AI restore, plus console/page/runtime errors and a non-blank canvas.
+- Browser test: `node _work/visual/run.js` uses Chrome at 2560×1600 via `file://` and `puppeteer-core` from `C:\Users\ostrov\AppData\Local\Temp\opencode\room_a_visual\node_modules`; headless WebGL needs `--enable-unsafe-swiftshader`. It checks every LED, light preset, decor, peg placement (the 3×2 variants and the shifted-down 4×3-cell “Максимум”), all three panno variants, panno/central-pegboard conflict resolution, panno AI restore, corner toggle, AI restore, plus console/page/runtime errors and a non-blank canvas.
 - Open `file:///D:/projects/room_a/3droom.html` manually for final visual QA. The three Three.js CDN scripts still need network access.
 
 ## Current gaps
-- No known functional gaps. `3droom.html` is assembled and tested, and includes the board-only `peg_final.jpg`, the procedural desk-width 4×3 “Максимум” pegboard, and the three wooden light-panel variants.
+- No known functional gaps. `3droom.html` is assembled and tested, and includes the board-only `peg_final.jpg`, the procedural 4×3 “Максимум” pegboard, and the three wooden light-panel variants.

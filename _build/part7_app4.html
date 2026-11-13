@@ -47,8 +47,9 @@
     document.getElementById('ledPicHint').textContent = s.ledPictureAvailable
       ? 'по краю панелей вокруг полотна'
       : (state.panno > 0 ? 'недоступно: включено световое панно'
-        : (state.peg === 3 ? 'недоступно для «Максимум»: картина скрыта'
-                           : 'недоступно в режиме «Вся стена»'));
+        : (state.peg === 2 || state.peg === 3
+            ? 'недоступно: выбранный пегборд скрывает картину'
+            : 'недоступно в режиме «Вся стена»'));
     document.getElementById('ledPegHint').textContent = s.ledPegAvailable
       ? 'контур выбранного пегборда'
       : 'сначала включите пегборд';
@@ -89,9 +90,9 @@
       el.ai.checked = false;
     }
     var next = readUI();
-    /* «Максимум» и световое панно делят центральную зону стены:
-       последнее действие пользователя выигрывает. */
-    if (next.panno > 0 && next.peg === 3) {
+    /* «По центру»/«Максимум» и световое панно делят центральную зону
+       стены: последнее действие пользователя выигрывает. */
+    if (next.panno > 0 && (next.peg === 2 || next.peg === 3)) {
       if (e && e.target && e.target.name === 'panno') next.peg = 1;
       else next.panno = 0;
     }
