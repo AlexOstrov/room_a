@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Repository facts
-- This is a plain-files workspace tracked by git (branch `main`): no `package.json`, CI, test runner, or dev server. Do not invent `npm run …` commands.
+- This is a plain-files workspace tracked by git: branch `room_a` (the GitHub default branch), remote `origin` at https://github.com/AlexOstrov/room_a (public). There is no `package.json`, CI, test runner, or dev server. Do not invent `npm run …` commands.
 - The deliverable is `3droom.html`: one HTML file with inline CSS/JS that must open directly via `file://`. Three.js is pinned to r147 UMD plus `examples/js` helpers from jsDelivr; all image assets must be embedded.
 - `panels/` is the approved texture deliverable. `panels/manifest.json` and `panels/README_panels.md` are authoritative for decor names, slat pitch (39.67 mm), and per-decor UV tile sizes. Do not edit or regenerate those PNGs unless asked.
 - The app source is split into ordered fragments in `_build/`: `part1_head.html` … `part7_app4.html`, including `part5b_panno.html`. They are not standalone pages; `part4`…`part7` continue one JS IIFE. `build.py` concatenates them, embeds the seven textures as data URIs, inserts the generated `panno_rings.json` into the panno fragment, and writes the deliverable `3droom.html`.
@@ -22,8 +22,12 @@
 - `_work/` is disposable analysis output and is not a source of truth. `panels/*.png` and the root reference/catalog images are sources, not runtime files.
 
 ## Git workflow
-- Commit after every completed task, without waiting for a reminder: stage the intended source, test, doc, and deliverable changes, write a concise descriptive message, create the commit, and verify `git status` leaves only ignored output such as `_work/`.
-- Keep generated/analysis output (`_work/`, screenshots) out of commits. Do not amend or rewrite existing commits unless explicitly asked.
+- Work on `room_a`, which tracks `origin/room_a`; `main` is the original local history and is not pushed. Keep the checkout on `room_a` unless asked otherwise.
+- Commit after every completed task, without waiting for a reminder: stage the intended source, test, doc, and deliverable changes, write a concise descriptive message, create the commit, and verify `git status` shows a clean tree (only ignored output such as `_work/` may remain).
+- Push after every commit with `git push` (same as `git push origin room_a`) and confirm `origin/room_a` points at the new commit before reporting the task as done.
+- Keep generated/analysis output (`_work/`, screenshots) out of commits. Do not amend, rebase, or force-push published history unless explicitly asked.
+- Never commit credentials, tokens, or `.secrets` files. Authentication lives outside the repository, `origin` must stay a clean `https://github.com/…` URL, and tokens must not appear in sources, docs, commit messages, or logs.
+- Keep the GitHub repository public unless the user explicitly asks to change visibility; do not create additional remotes or repositories without being asked.
 
 ## Verification
 - Build: `python build.py` (regenerates the board-only pegboard crop, downscales textures, inserts `panno_rings.json`, writes `3droom.html`). The map PNG and rings come from `python _work/panno_gen.py`.
