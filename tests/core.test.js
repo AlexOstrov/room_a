@@ -102,7 +102,7 @@ test("sanitize: значения зажимаются в допустимые д
   });
   assert.strictEqual(s.decor, 3);
   assert.strictEqual(s.mode, "B");
-  assert.strictEqual(s.peg, 1, "панно вытесняет «Максимум» из центра стены");
+  assert.strictEqual(s.peg, 3, "«Максимум» может отображаться вместе с панно");
   assert.strictEqual(s.panno, 3);
   assert.strictEqual(s.light, 0);
   assert.strictEqual(s.corner, true);
@@ -197,16 +197,35 @@ test("panno: все варианты центрированы по стене и
   assert.strictEqual(Core.pannoRect({ panno: 9 }), null);
 });
 
-test("panno: центральные пегборды и панно не сосуществуют", function () {
-  [2, 3].forEach(function (peg) {
-    var s = Core.sanitize({ mode: "B", peg: peg, panno: 3, led: { picture: true } });
-    assert.strictEqual(s.panno, 3, "панно сохраняется");
-    assert.strictEqual(s.peg, 1, "пегборд откатывается к обычному варианту");
+test("panno: «По центру» не сосуществует с панно", function () {
+  var s = Core.sanitize({ mode: "B", peg: 2, panno: 3, led: { picture: true } });
+  assert.strictEqual(s.panno, 3, "панно сохраняется");
+  assert.strictEqual(s.peg, 1, "пегборд откатывается к обычному варианту");
+  assert.strictEqual(s.led.picture, false);
+  assert.strictEqual(Core.pictureVisible(s), false);
+  assert.strictEqual(Core.summary(s).pegVisible, true);
+  assert.strictEqual(Core.summary(s).pannoVisible, true);
+});
+
+test("panno: «Максимум» отображается со всеми вариантами панно", function () {
+  for (var p = 1; p <= Core.PANNO.variants.length; p++) {
+    var s = Core.sanitize({ mode: "B", peg: 3, panno: p, led: { picture: true, wall: true, peg: true } });
+    assert.strictEqual(s.peg, 3, "«Максимум» сохраняется");
+    assert.strictEqual(s.panno, p, "панно сохраняется");
     assert.strictEqual(s.led.picture, false);
     assert.strictEqual(Core.pictureVisible(s), false);
+    assert.strictEqual(Core.panelRects(s).length, 1, "МДФ без выреза под картину");
+
+    var pr = Core.pegRect(s), nr = Core.pannoRect(s);
+    assert(pr && nr);
+    assert(!overlap(pr, nr), "панно и «Максимум» не должны пересекаться");
+    assert(!overlap(Core.ledRects(s).peg, nr),
+      "LED-рамка «Максимума» не должна пересекать панно");
+
     assert.strictEqual(Core.summary(s).pegVisible, true);
     assert.strictEqual(Core.summary(s).pannoVisible, true);
-  });
+    assert.strictEqual(Core.summary(s).pannoName, Core.PANNO.names[p]);
+  }
 });
 
 test("geometry: картина и панели режима A/B", function () {
