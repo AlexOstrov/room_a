@@ -19,6 +19,7 @@
   - “По центру” and a panno cannot both occupy the central zone: `sanitize` keeps the panno and falls the pegboard back to variant 1. The UI resolves the conflict by the latest user action. “Максимум” sits to the right of the panno and can be shown together with any of the three panno variants.
 - MDF textures use world-coordinate UVs (`Core.uvAt`) with per-decor tile widths from the manifest. Do not switch to per-mesh 0…1 UVs; the slat pattern will jump at panel seams. The source tiles are not seamless along V, so `Core.decorTile` stretches the vertical repeat to at least the wall height; shrinking it back causes visible horizontal bands.
 - Preserve the state flow: UI → `sanitize` → one scene update path, and restore the pre-AI snapshot when the AI preset is switched off.
+- Visually hidden radio/checkbox inputs are `position:absolute`. Keep their wrappers (`.card`, `.chk`, `.pill`, `.switch`) as positioned ancestors; otherwise focus can scroll the `overflow:hidden` side panel and permanently hide its header, AI switch and MDF select.
 - `_work/` is disposable analysis output and is not a source of truth. `panels/*.png` and the root reference/catalog images are sources, not runtime files.
 
 ## Git workflow
@@ -32,7 +33,7 @@
 ## Verification
 - Build: `python build.py` (regenerates the board-only pegboard crop, downscales textures, inserts `panno_rings.json`, writes `3droom.html`). The map PNG and rings come from `python _work/panno_gen.py`.
 - Unit tests: `node tests/core.test.js` extracts/evaluates the marked CORE block and checks state and geometry invariants (18 tests).
-- Browser test: `node _work/visual/run.js` uses Chrome at 2560×1600 via `file://` and `puppeteer-core` from `C:\Users\ostrov\AppData\Local\Temp\opencode\room_a_visual\node_modules`; headless WebGL needs `--enable-unsafe-swiftshader`. It checks every LED, light preset, decor, peg placement (the 3×2 variants and the shifted-down 4×3-cell “Максимум”), all three panno variants, all three “Максимум”+panno combinations, panno/“По центру” conflict resolution, panno AI restore, corner toggle, AI restore, plus console/page/runtime errors and a non-blank canvas.
+- Browser test: `node _work/visual/run.js` uses Chrome at 2560×1600 via `file://` and `puppeteer-core` from `C:\Users\ostrov\AppData\Local\Temp\opencode\room_a_visual\node_modules`; headless WebGL needs `--enable-unsafe-swiftshader`. It checks every LED, light preset, decor, peg placement (the 3×2 variants and the shifted-down 4×3-cell “Максимум”), all three panno variants, all three “Максимум”+panno combinations, panno/“По центру” conflict resolution, panno AI restore, corner toggle, the small-viewport panel-scroll regression at 1366×768, AI restore, plus console/page/runtime errors and a non-blank canvas.
 - Open `file:///D:/projects/room_a/3droom.html` manually for final visual QA. The three Three.js CDN scripts still need network access.
 
 ## Current gaps

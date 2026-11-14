@@ -125,6 +125,7 @@
   /* ---------- карточки-радио ---------- */
   .cards{display:grid;gap:7px}
   .card{
+    position:relative;
     display:flex;gap:9px;align-items:flex-start;padding:9px 11px;cursor:pointer;
     border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.032);
     transition:background .15s,border-color .15s;
@@ -147,6 +148,7 @@
 
   /* ---------- чекбоксы ---------- */
   .chk{
+    position:relative;
     display:flex;gap:9px;align-items:center;padding:7px 2px;cursor:pointer;user-select:none;
   }
   .chk input{position:absolute;opacity:0;pointer-events:none}
