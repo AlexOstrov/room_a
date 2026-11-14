@@ -25,7 +25,7 @@
 - Work on `room_a`, which tracks `origin/room_a`; `main` is the original local history and is not pushed. Keep the checkout on `room_a` unless asked otherwise.
 - Commit after every completed task, without waiting for a reminder: stage the intended source, test, doc, and deliverable changes, write a concise descriptive message, create the commit, and verify `git status` shows a clean tree (only ignored output such as `_work/` may remain).
 - Push after every commit with `git push` (same as `git push origin room_a`) and confirm `origin/room_a` points at the new commit before reporting the task as done.
-- Keep generated/analysis output (`_work/`, screenshots) out of commits. Do not amend, rebase, or force-push published history unless explicitly asked.
+- Keep generated/analysis output (`_work/`, screenshots) out of commits. Curated documentation images in `docs/` that are referenced by `README.md` are the exception; raw test screenshots stay in `_work/`. Do not amend, rebase, or force-push published history unless explicitly asked.
 - Never commit credentials, tokens, or `.secrets` files. Authentication lives outside the repository, `origin` must stay a clean `https://github.com/…` URL, and tokens must not appear in sources, docs, commit messages, or logs.
 - Keep the GitHub repository public unless the user explicitly asks to change visibility; do not create additional remotes or repositories without being asked.
 
